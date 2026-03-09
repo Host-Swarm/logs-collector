@@ -40,6 +40,7 @@ it('broadcasts normalized log payloads', function () {
         logger: $logger,
         logDevelopmentFormat: true,
         logSocketErrors: true,
+        logPayloads: false,
     );
 
     $observer->observe(buildContainer(), new LogStreamOptionsDTO(
@@ -88,6 +89,7 @@ it('continues when upstream broadcast fails', function () {
         logger: $logger,
         logDevelopmentFormat: false,
         logSocketErrors: true,
+        logPayloads: false,
     );
 
     $observer->observe(buildContainer(), new LogStreamOptionsDTO(

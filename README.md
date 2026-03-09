@@ -75,9 +75,71 @@ The collector must expose visibility for:
 
 # Running the Collector
 
-Example container run:
+This collector needs access to the Docker socket for discovery and log streaming.
 
-<pre class="overflow-visible! px-0!" data-start="3107" data-end="3262"><div class="relative w-full mt-4 mb-1"><div class=""><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-token-bg-elevated-secondary corner-superellipse/1.1 overflow-clip rounded-3xl lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼd ͼr"><div class="cm-scroller"><div class="cm-content q9tKkq_readonly"><span>docker run \</span><br/><span>  -v /var/run/docker.sock:/var/run/docker.sock \</span><br/><span>  -e SERVER_MANAGER_SOCKET=wss://server-manager/ws/logs \</span><br/><span>  host-swarm-logs-collector</span></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></pre>
+Quick start:
+
+```bash
+docker run \
+	-v /var/run/docker.sock:/var/run/docker.sock \
+	-e PUSHER_APP_KEY=app-key \
+	-e PUSHER_HOST=soketi \
+	-e PUSHER_PORT=6001 \
+	-e PUSHER_SCHEME=http \
+	-e PUSHER_SOCKET_PATH=/ws/swarm \
+	-e LOG_COLLECTOR_SWARM_KEY=main-swarm \
+	host-swarm-logs-collector
+```
+
+If you run it with docker-compose, ensure the container has a long-running command
+and a queue worker. For example:
+
+```yaml
+command: ["sh", "-c", "php artisan schedule:work & php artisan queue:work"]
+```
+
+Swarm note: the collector must run on a Swarm manager node. If it runs on a worker,
+Docker will return 503 for `/services`.
+
+## Commands
+
+```bash
+# Stream container logs (dispatches jobs when following)
+php artisan logs:collect
+
+# Collect and broadcast host metrics
+php artisan metrics:collect --interval=60
+```
+
+## Environment
+
+Required:
+
+- `UPSTREAM_SOCKET_ENDPOINT` (or the Pusher config below)
+- `LOG_COLLECTOR_SWARM_KEY`
+
+Websocket via Pusher/Soketi:
+
+- `PUSHER_APP_ID`
+- `PUSHER_APP_KEY`
+- `PUSHER_APP_SECRET`
+- `PUSHER_HOST`
+- `PUSHER_PORT`
+- `PUSHER_SCHEME`
+- `PUSHER_APP_CLUSTER`
+- `PUSHER_SOCKET_PATH` (example: `/ws/swarm`)
+
+Common optional:
+
+- `UPSTREAM_SOCKET_TOKEN`
+- `LOG_COLLECTOR_LOG_SOCKET_ERRORS` (default: false)
+- `LOG_COLLECTOR_LOG_PAYLOADS` (default: false)
+- `LOG_COLLECTOR_METRICS_INTERVAL` (default: 60)
+
+Troubleshooting:
+
+- Ensure `PUSHER_HOST` is reachable from the container. If you use the host name
+	`soketi`, run it as a service on the same Docker network.
 
 ---
 

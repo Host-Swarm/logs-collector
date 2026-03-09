@@ -2,24 +2,6 @@
 
 declare(strict_types=1);
 
-$socketEndpoint = env('UPSTREAM_SOCKET_ENDPOINT');
-
-if ($socketEndpoint === null || $socketEndpoint === '') {
-    $scheme = env('PUSHER_SCHEME', 'http');
-    $wsScheme = $scheme === 'https' ? 'wss' : 'ws';
-    $host = env('PUSHER_HOST', 'localhost');
-    $port = env('PUSHER_PORT', 6001);
-    $key = env('PUSHER_APP_KEY');
-    $defaultPath = $key ? '/app/'.$key : '/app';
-    $path = env('PUSHER_SOCKET_PATH', $defaultPath);
-
-    if (! str_starts_with($path, '/')) {
-        $path = '/'.$path;
-    }
-
-    $socketEndpoint = sprintf('%s://%s:%s%s', $wsScheme, $host, $port, $path);
-}
-
 return [
     'swarm_key' => env('LOG_COLLECTOR_SWARM_KEY', 'main-swarm'),
     'queue' => env('LOG_COLLECTOR_QUEUE', 'default'),
@@ -32,11 +14,11 @@ return [
         'stream_timeout' => (int) env('DOCKER_STREAM_TIMEOUT', 0),
     ],
     'upstream' => [
-        'socket_endpoint' => $socketEndpoint,
-        'token' => env('UPSTREAM_SOCKET_TOKEN'),
-        'timeout' => (int) env('UPSTREAM_SOCKET_TIMEOUT', 10),
-        'connect_timeout' => (int) env('UPSTREAM_SOCKET_CONNECT_TIMEOUT', 5),
         'log_socket_errors' => (bool) env('LOG_COLLECTOR_LOG_SOCKET_ERRORS', false),
+    ],
+    'pusher' => [
+        'channel' => env('LOG_COLLECTOR_PUSHER_CHANNEL', 'swarm-logs'),
+        'event' => env('LOG_COLLECTOR_PUSHER_EVENT'),
     ],
     'log_payloads' => (bool) env('LOG_COLLECTOR_LOG_PAYLOADS', false),
     'metrics' => [

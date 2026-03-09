@@ -8,10 +8,10 @@ use App\Domain\Logs\Services\LogNormalizerService;
 use App\Domain\Logs\Services\LogObserverService;
 use App\Domain\Metrics\Contracts\SystemMetricsProvider;
 use App\Domain\Metrics\Services\HostMetricsService;
+use App\Infrastructure\Broadcasting\PusherLogBroadcaster;
 use App\Infrastructure\Docker\DockerHttpClient;
 use App\Infrastructure\Docker\DockerLogStreamService;
 use App\Infrastructure\System\LinuxProcMetricsProvider;
-use App\Infrastructure\WebSocket\ServerManagerSocketBroadcaster;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 
@@ -34,11 +34,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(LogStreamService::class, DockerLogStreamService::class);
 
         $this->app->singleton(LogBroadcaster::class, function (): LogBroadcaster {
-            return new ServerManagerSocketBroadcaster(
-                endpoint: (string) config('logs_collector.upstream.socket_endpoint'),
-                token: config('logs_collector.upstream.token'),
-                connectTimeout: (int) config('logs_collector.upstream.connect_timeout'),
-                timeout: (int) config('logs_collector.upstream.timeout'),
+            return new PusherLogBroadcaster(
+                channel: (string) config('logs_collector.pusher.channel'),
+                event: config('logs_collector.pusher.event'),
                 logger: $this->app->make(LoggerInterface::class),
                 logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
             );

@@ -14,7 +14,13 @@ services:
       LOG_CHANNEL: single
       LOG_LEVEL: debug
 
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      CACHE_STORE: file
+
       LOG_COLLECTOR_SWARM_KEY: main-swarm
+      LOG_COLLECTOR_PUSHER_CHANNEL: swarm-logs
+      LOG_COLLECTOR_PUSHER_EVENT:
 
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DOCKER_BASE_URL: http://localhost
@@ -30,8 +36,6 @@ services:
       PUSHER_SCHEME: http
       PUSHER_APP_CLUSTER: mt1
       PUSHER_SOCKET_PATH: /ws/swarm
-      UPSTREAM_SOCKET_TIMEOUT: 10
-      UPSTREAM_SOCKET_CONNECT_TIMEOUT: 5
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/var/www/html

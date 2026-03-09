@@ -31,7 +31,7 @@ it('broadcasts normalized log payloads', function () {
         }
     };
 
-    $logger = new MemoryLogger;
+    $logger = buildMemoryLogger();
 
     $observer = new LogObserverService(
         streamService: $stream,
@@ -80,7 +80,7 @@ it('continues when upstream broadcast fails', function () {
         }
     };
 
-    $logger = new MemoryLogger;
+    $logger = buildMemoryLogger();
 
     $observer = new LogObserverService(
         streamService: $stream,
@@ -130,24 +130,27 @@ function buildContainer(): DiscoveredContainerDTO
     );
 }
 
-final class MemoryLogger extends AbstractLogger
+function buildMemoryLogger(): AbstractLogger
 {
-    /**
-     * @var array<int, array<string, mixed>>
-     */
-    public array $records = [];
-
-    /**
-     * @param  mixed  $level
-     * @param  string|Stringable  $message
-     * @param  array<string, mixed>  $context
-     */
-    public function log($level, $message, array $context = []): void
+    return new class extends AbstractLogger
     {
-        $this->records[] = [
-            'level' => (string) $level,
-            'message' => (string) $message,
-            'context' => $context,
-        ];
-    }
+        /**
+         * @var array<int, array<string, mixed>>
+         */
+        public array $records = [];
+
+        /**
+         * @param  mixed  $level
+         * @param  string|Stringable  $message
+         * @param  array<string, mixed>  $context
+         */
+        public function log($level, $message, array $context = []): void
+        {
+            $this->records[] = [
+                'level' => (string) $level,
+                'message' => (string) $message,
+                'context' => $context,
+            ];
+        }
+    };
 }

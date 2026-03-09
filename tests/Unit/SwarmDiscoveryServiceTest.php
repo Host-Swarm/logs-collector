@@ -10,7 +10,7 @@ it('discovers containers from services and tasks', function () {
     $containerId = 'container-123';
     $filters = json_encode(['service' => ['service-123']], JSON_THROW_ON_ERROR);
 
-    $client = new FakeDockerHttpClient([
+    $client = buildDockerClient([
         '/services' => [
             [
                 'ID' => 'service-123',
@@ -60,7 +60,7 @@ it('discovers containers from services and tasks', function () {
 it('skips tasks without container mappings', function () {
     $filters = json_encode(['service' => ['service-123']], JSON_THROW_ON_ERROR);
 
-    $client = new FakeDockerHttpClient([
+    $client = buildDockerClient([
         '/services' => [
             [
                 'ID' => 'service-123',
@@ -90,34 +90,40 @@ it('skips tasks without container mappings', function () {
     expect($containers)->toHaveCount(0);
 });
 
-final class FakeDockerHttpClient extends DockerHttpClient
+/**
+ * @param  array<string, array<int, array<string, mixed>>|array<string, mixed>>  $responses
+ */
+function buildDockerClient(array $responses): DockerHttpClient
 {
-    /**
-     * @var array<string, array<int, array<string, mixed>>|
-     *     array<string, mixed>>
-     */
-    private array $responses;
-
-    /**
-     * @param  array<string, array<int, array<string, mixed>>|array<string, mixed>>  $responses
-     */
-    public function __construct(array $responses)
+    return new class($responses) extends DockerHttpClient
     {
-        parent::__construct('/var/run/docker.sock', 1, 1, 1);
-        $this->responses = $responses;
-    }
+        /**
+         * @var array<string, array<int, array<string, mixed>>|
+         *     array<string, mixed>>
+         */
+        private array $responses;
 
-    /**
-     * @return array<string, mixed>
-     */
-    public function getJson(string $path, array $query = []): array
-    {
-        $key = $path;
-
-        if ($query !== []) {
-            $key .= '?'.http_build_query($query);
+        /**
+         * @param  array<string, array<int, array<string, mixed>>|array<string, mixed>>  $responses
+         */
+        public function __construct(array $responses)
+        {
+            parent::__construct('/var/run/docker.sock', 1, 1, 1);
+            $this->responses = $responses;
         }
 
-        return $this->responses[$key] ?? [];
-    }
+        /**
+         * @return array<string, mixed>
+         */
+        public function getJson(string $path, array $query = []): array
+        {
+            $key = $path;
+
+            if ($query !== []) {
+                $key .= '?'.http_build_query($query);
+            }
+
+            return $this->responses[$key] ?? [];
+        }
+    };
 }

@@ -70,7 +70,7 @@ final class WebSocketClient
         );
 
         if (! is_resource($socket)) {
-            throw new RuntimeException(sprintf('Unable to connect to websocket: %s', $errstr));
+            throw new RuntimeException(sprintf('Unable to connect to websocket: %s (%d) %s', $errstr, $errno, $parts['host']));
         }
 
         stream_set_timeout($socket, $this->timeout);

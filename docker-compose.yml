@@ -22,8 +22,14 @@ services:
       DOCKER_CONNECT_TIMEOUT: 5
       DOCKER_STREAM_TIMEOUT: 0
 
-      UPSTREAM_SOCKET_ENDPOINT: http://soketi:6001/ws/swarm
-      UPSTREAM_SOCKET_TOKEN: "app-key"
+      PUSHER_APP_ID: app-id
+      PUSHER_APP_KEY: app-key
+      PUSHER_APP_SECRET: app-secret
+      PUSHER_HOST: soketi
+      PUSHER_PORT: 6001
+      PUSHER_SCHEME: http
+      PUSHER_APP_CLUSTER: mt1
+      PUSHER_SOCKET_PATH: /ws/swarm
       UPSTREAM_SOCKET_TIMEOUT: 10
       UPSTREAM_SOCKET_CONNECT_TIMEOUT: 5
     volumes:

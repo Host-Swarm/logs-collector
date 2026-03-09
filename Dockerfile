@@ -42,4 +42,4 @@ RUN mkdir -p storage/framework/cache \
     bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
-CMD ["php", "artisan", "schedule:work"]
+CMD ["sh", "-c", "php artisan metrics:collect --interval=5 & php artisan logs:collect & php artisan queue:work"]

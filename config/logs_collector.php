@@ -18,7 +18,9 @@ return [
         'token' => env('UPSTREAM_SOCKET_TOKEN'),
         'timeout' => (int) env('UPSTREAM_SOCKET_TIMEOUT', 10),
         'connect_timeout' => (int) env('UPSTREAM_SOCKET_CONNECT_TIMEOUT', 5),
+        'log_socket_errors' => (bool) env('LOG_COLLECTOR_LOG_SOCKET_ERRORS', false),
     ],
+    'log_payloads' => (bool) env('LOG_COLLECTOR_LOG_PAYLOADS', false),
     'metrics' => [
         'interval' => (int) env('LOG_COLLECTOR_METRICS_INTERVAL', 60),
     ],

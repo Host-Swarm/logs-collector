@@ -19,3 +19,17 @@ app()->afterResolving(Schedule::class, function (Schedule $schedule): void {
         ->runInBackground()
         ->withoutOverlapping();
 });
+
+// Schedule::macro('collectLogs', function (Schedule $schedule) {
+//     $schedule->command('logs:collect')
+//         ->everyFiveSeconds()
+//         ->runInBackground()
+//         ->withoutOverlapping();
+// });
+
+// Schedule::macro('collectMetrics', function (Schedule $schedule) {
+//     $schedule->command('metrics:collect')
+//         ->everyMinute()
+//         ->runInBackground()
+//         ->withoutOverlapping();
+// });

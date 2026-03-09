@@ -9,10 +9,10 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: host-swarm-logs-collector
-      APP_ENV: production
-      APP_DEBUG: "false"
-      LOG_CHANNEL: stderr
-      LOG_LEVEL: info
+      APP_ENV: local
+      APP_DEBUG: "true"
+      LOG_CHANNEL: single
+      LOG_LEVEL: debug
 
       LOG_COLLECTOR_SWARM_KEY: main-swarm
 
@@ -22,14 +22,13 @@ services:
       DOCKER_CONNECT_TIMEOUT: 5
       DOCKER_STREAM_TIMEOUT: 0
 
-      UPSTREAM_SOCKET_ENDPOINT: ws://soketi:6001/server-logs
+      UPSTREAM_SOCKET_ENDPOINT: http://soketi:6001/ws/swarm
       UPSTREAM_SOCKET_TOKEN: "app-key"
       UPSTREAM_SOCKET_TIMEOUT: 10
       UPSTREAM_SOCKET_CONNECT_TIMEOUT: 5
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/var/www/html
-    command: ["php", "artisan", "schedule:work"]
     networks:
       - server_manager
 

@@ -20,6 +20,7 @@ final class ServerManagerSocketBroadcaster implements LogBroadcaster
         private int $connectTimeout,
         private int $timeout,
         private LoggerInterface $logger,
+        private bool $logSocketErrors,
     ) {
         $headers = [];
 
@@ -41,9 +42,11 @@ final class ServerManagerSocketBroadcaster implements LogBroadcaster
         try {
             $this->client->send($encoded);
         } catch (Throwable $exception) {
-            $this->logger->warning('Upstream socket send failed.', [
-                'error' => $exception->getMessage(),
-            ]);
+            if ($this->logSocketErrors) {
+                $this->logger->warning('Upstream socket send failed.', [
+                    'error' => $exception->getMessage(),
+                ]);
+            }
 
             $this->client->close();
 

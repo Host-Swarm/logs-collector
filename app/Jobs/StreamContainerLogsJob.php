@@ -37,7 +37,7 @@ final class StreamContainerLogsJob implements ShouldQueue
 
     public function retryUntil(): DateTimeImmutable
     {
-        $minutes = (int) config('logs_collector.retry_until_minutes', 15);
+        $minutes = (int) config('logs_collector.retry_until_minutes', 1);
 
         return now()->addMinutes($minutes)->toImmutable();
     }

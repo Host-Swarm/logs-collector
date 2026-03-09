@@ -7,6 +7,7 @@ use App\Domain\Logs\Contracts\LogStreamService;
 use App\Domain\Logs\Services\LogNormalizerService;
 use App\Domain\Logs\Services\LogObserverService;
 use App\Domain\Metrics\Contracts\SystemMetricsProvider;
+use App\Domain\Metrics\Services\HostMetricsService;
 use App\Infrastructure\Docker\DockerHttpClient;
 use App\Infrastructure\Docker\DockerLogStreamService;
 use App\Infrastructure\System\LinuxProcMetricsProvider;
@@ -39,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
                 connectTimeout: (int) config('logs_collector.upstream.connect_timeout'),
                 timeout: (int) config('logs_collector.upstream.timeout'),
                 logger: $this->app->make(LoggerInterface::class),
+                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
             );
         });
 
@@ -51,10 +53,22 @@ class AppServiceProvider extends ServiceProvider
                 broadcaster: $this->app->make(LogBroadcaster::class),
                 logger: $this->app->make(LoggerInterface::class),
                 logDevelopmentFormat: in_array($environment, ['local', 'development'], true),
+                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
+                logPayloads: (bool) config('logs_collector.log_payloads', false),
             );
         });
 
         $this->app->bind(SystemMetricsProvider::class, LinuxProcMetricsProvider::class);
+
+        $this->app->bind(HostMetricsService::class, function (): HostMetricsService {
+            return new HostMetricsService(
+                provider: $this->app->make(SystemMetricsProvider::class),
+                broadcaster: $this->app->make(LogBroadcaster::class),
+                logger: $this->app->make(LoggerInterface::class),
+                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
+                logPayloads: (bool) config('logs_collector.log_payloads', false),
+            );
+        });
     }
 
     /**

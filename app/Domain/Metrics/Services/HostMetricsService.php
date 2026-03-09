@@ -11,6 +11,7 @@ use App\Domain\Metrics\DTOs\SystemMetricsSnapshotDTO;
 use DateTimeImmutable;
 use DateTimeZone;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 final class HostMetricsService
 {
@@ -21,6 +22,8 @@ final class HostMetricsService
         private SystemMetricsProvider $provider,
         private LogBroadcaster $broadcaster,
         private LoggerInterface $logger,
+        private bool $logSocketErrors = false,
+        private bool $logPayloads = false,
     ) {
     }
 
@@ -62,7 +65,19 @@ final class HostMetricsService
             ],
         ], $timestamp);
 
-        $this->broadcaster->broadcast($payload);
+        if ($this->logPayloads) {
+            $this->logger->info('Broadcast payload', $payload->toArray());
+        }
+
+        try {
+            $this->broadcaster->broadcast($payload);
+        } catch (Throwable $exception) {
+            if ($this->logSocketErrors) {
+                $this->logger->warning('Upstream socket broadcast failed.', [
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function calculateUsed(?int $total, ?int $available): ?int
@@ -90,8 +105,6 @@ final class HostMetricsService
         if ($this->previousCpuTotal === null || $this->previousCpuIdle === null) {
             $this->previousCpuTotal = $total;
             $this->previousCpuIdle = $idle;
-
-            $this->logger->info('Host metrics CPU baseline recorded.');
 
             return null;
         }

@@ -38,10 +38,9 @@ final class CollectHostMetricsCommand extends Command
             'swarm_key' => $swarmKey,
             'interval_seconds' => $intervalSeconds,
         ]);
+        $this->metrics->collectAndBroadcast($swarmKey);
 
-        while (true) {
-            $this->metrics->collectAndBroadcast($swarmKey);
-            sleep($intervalSeconds);
-        }
+        return self::SUCCESS;
+           
     }
 }

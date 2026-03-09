@@ -20,6 +20,8 @@ final class LogObserverService
         private LogBroadcaster $broadcaster,
         private LoggerInterface $logger,
         private bool $logDevelopmentFormat,
+        private bool $logSocketErrors,
+        private bool $logPayloads,
     ) {}
 
     public function observe(DiscoveredContainerDTO $container, LogStreamOptionsDTO $options): void
@@ -28,20 +30,30 @@ final class LogObserverService
             [$timestamp, $message] = $this->parsePayload($payload, $options->timestamps);
             $normalized = $this->normalizer->normalize($container, $channel, $message, $timestamp);
 
+            if ($this->logPayloads) {
+                $this->logger->info('Broadcast payload', $normalized->toArray());
+            }
+
             try {
                 $this->broadcaster->broadcast($normalized);
             } catch (Throwable $exception) {
-                $this->logger->warning('Upstream socket broadcast failed.', [
-                    'container_id' => $container->containerId,
-                    'service_id' => $container->serviceId,
-                    'error' => $exception->getMessage(),
-                ]);
+                if ($this->logSocketErrors) {
+                    $this->logger->warning('Upstream socket broadcast failed.', [
+                        'container_id' => $container->containerId,
+                        'service_id' => $container->serviceId,
+                        'stack_name' => $container->stackName,
+                        'service_name' => $container->serviceName,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
             }
 
             if ($this->logDevelopmentFormat) {
                 $this->logger->info($this->formatDevelopmentLine($container, $channel, $message), [
                     'container_id' => $container->containerId,
                     'service_id' => $container->serviceId,
+                    'stack_name' => $container->stackName,
+                    'service_name' => $container->serviceName,
                 ]);
             }
         });

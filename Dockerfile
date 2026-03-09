@@ -42,4 +42,4 @@ RUN mkdir -p storage/framework/cache \
     bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
-CMD ["php", "artisan", "logs:collect", "--tail=100"]
+CMD ["php", "artisan", "schedule:work"]

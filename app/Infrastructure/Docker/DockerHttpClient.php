@@ -1,0 +1,262 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Infrastructure\Docker;
+
+use RuntimeException;
+
+class DockerHttpClient
+{
+    public function __construct(
+        private string $socketPath,
+        private int $timeout,
+        private int $connectTimeout,
+        private int $streamTimeout,
+    ) {}
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getJson(string $path, array $query = []): array
+    {
+        $response = $this->request('GET', $path, $query);
+
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw new RuntimeException(sprintf('Docker API request failed with status %d.', $response['status']));
+        }
+
+        $data = json_decode($response['body'], true);
+
+        if (! is_array($data)) {
+            throw new RuntimeException('Docker API response was not valid JSON.');
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  callable(string $chunk): void  $onChunk
+     */
+    public function stream(string $path, array $query, callable $onChunk): void
+    {
+        $socket = $this->openSocket();
+        $request = $this->buildRequest('GET', $path, $query);
+        fwrite($socket, $request);
+
+        [$status, $headers, $buffer] = $this->readHeaders($socket);
+
+        if ($status < 200 || $status >= 300) {
+            fclose($socket);
+            throw new RuntimeException(sprintf('Docker stream request failed with status %d.', $status));
+        }
+
+        if ($this->streamTimeout > 0) {
+            stream_set_timeout($socket, $this->streamTimeout);
+        }
+
+        $isChunked = isset($headers['transfer-encoding']) && $headers['transfer-encoding'] === 'chunked';
+        $chunkedBuffer = '';
+
+        if ($buffer !== '') {
+            if ($isChunked) {
+                [$decoded, $chunkedBuffer] = $this->decodeChunkedStream($chunkedBuffer.$buffer);
+                if ($decoded !== '') {
+                    $onChunk($decoded);
+                }
+            } else {
+                $onChunk($buffer);
+            }
+        }
+
+        while (! feof($socket)) {
+            $chunk = fread($socket, 8192);
+
+            if ($chunk === '' || $chunk === false) {
+                continue;
+            }
+
+            if ($isChunked) {
+                [$decoded, $chunkedBuffer] = $this->decodeChunkedStream($chunkedBuffer.$chunk);
+                if ($decoded !== '') {
+                    $onChunk($decoded);
+                }
+            } else {
+                $onChunk($chunk);
+            }
+        }
+
+        fclose($socket);
+    }
+
+    /**
+     * @return array{status: int, headers: array<string, string>, body: string}
+     */
+    private function request(string $method, string $path, array $query = []): array
+    {
+        $socket = $this->openSocket();
+        $request = $this->buildRequest($method, $path, $query);
+        fwrite($socket, $request);
+
+        [$status, $headers, $buffer] = $this->readHeaders($socket);
+        $body = $buffer;
+
+        while (! feof($socket)) {
+            $chunk = fread($socket, 8192);
+
+            if ($chunk === '' || $chunk === false) {
+                continue;
+            }
+
+            $body .= $chunk;
+        }
+
+        fclose($socket);
+
+        if (isset($headers['transfer-encoding']) && $headers['transfer-encoding'] === 'chunked') {
+            $body = $this->decodeChunked($body);
+        }
+
+        return [
+            'status' => $status,
+            'headers' => $headers,
+            'body' => $body,
+        ];
+    }
+
+    /**
+     * @return resource
+     */
+    private function openSocket()
+    {
+        $socket = @stream_socket_client(
+            'unix://'.$this->socketPath,
+            $errno,
+            $errstr,
+            $this->connectTimeout,
+        );
+
+        if (! is_resource($socket)) {
+            throw new RuntimeException(sprintf('Unable to connect to Docker socket: %s', $errstr));
+        }
+
+        stream_set_timeout($socket, $this->timeout);
+
+        return $socket;
+    }
+
+    private function buildRequest(string $method, string $path, array $query = []): string
+    {
+        $queryString = $query === [] ? '' : '?'.http_build_query($query);
+
+        return sprintf(
+            "%s %s%s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-logs-collector\r\nConnection: close\r\n\r\n",
+            $method,
+            $path,
+            $queryString,
+        );
+    }
+
+    /**
+     * @param  resource  $socket
+     * @return array{0: int, 1: array<string, string>, 2: string}
+     */
+    private function readHeaders($socket): array
+    {
+        $buffer = '';
+
+        while (! str_contains($buffer, "\r\n\r\n")) {
+            $chunk = fread($socket, 1024);
+
+            if ($chunk === '' || $chunk === false) {
+                break;
+            }
+
+            $buffer .= $chunk;
+        }
+
+        [$headerBlock, $rest] = explode("\r\n\r\n", $buffer, 2) + [1 => ''];
+        $lines = explode("\r\n", $headerBlock);
+        $statusLine = array_shift($lines) ?: 'HTTP/1.1 500';
+        $statusParts = explode(' ', $statusLine);
+        $status = isset($statusParts[1]) ? (int) $statusParts[1] : 500;
+
+        $headers = [];
+        foreach ($lines as $line) {
+            if (! str_contains($line, ':')) {
+                continue;
+            }
+
+            [$name, $value] = explode(':', $line, 2);
+            $headers[strtolower(trim($name))] = trim($value);
+        }
+
+        return [$status, $headers, $rest];
+    }
+
+    private function decodeChunked(string $payload): string
+    {
+        $decoded = '';
+
+        while ($payload !== '') {
+            $pos = strpos($payload, "\r\n");
+
+            if ($pos === false) {
+                break;
+            }
+
+            $lengthHex = substr($payload, 0, $pos);
+            $length = hexdec(trim($lengthHex));
+
+            if ($length === 0) {
+                break;
+            }
+
+            $payload = substr($payload, $pos + 2);
+
+            if (strlen($payload) < $length + 2) {
+                break;
+            }
+
+            $decoded .= substr($payload, 0, $length);
+            $payload = substr($payload, $length + 2);
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function decodeChunkedStream(string $payload): array
+    {
+        $decoded = '';
+
+        while (true) {
+            $pos = strpos($payload, "\r\n");
+
+            if ($pos === false) {
+                break;
+            }
+
+            $lengthHex = substr($payload, 0, $pos);
+            $length = hexdec(trim($lengthHex));
+            $payload = substr($payload, $pos + 2);
+
+            if ($length === 0) {
+                $payload = '';
+                break;
+            }
+
+            if (strlen($payload) < $length + 2) {
+                $payload = $lengthHex."\r\n".$payload;
+                break;
+            }
+
+            $decoded .= substr($payload, 0, $length);
+            $payload = substr($payload, $length + 2);
+        }
+
+        return [$decoded, $payload];
+    }
+}

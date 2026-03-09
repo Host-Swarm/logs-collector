@@ -2,7 +2,6 @@
 
 use App\Domain\Logs\DTOs\DiscoveredContainerDTO;
 use App\Domain\Logs\Services\LogNormalizerService;
-use DateTimeImmutable;
 
 it('normalizes container log payloads', function () {
     $container = new DiscoveredContainerDTO(
@@ -24,11 +23,12 @@ it('normalizes container log payloads', function () {
         containerStatus: 'running',
         containerImage: 'server-manager:latest',
         containerTty: false,
-        discoveredAt: new DateTimeImmutable('2026-03-10T10:20:00+00:00'),
+        stackName: 'host-swarm',
+        discoveredAt: new \DateTimeImmutable('2026-03-10T10:20:00+00:00'),
     );
 
     $normalizer = new LogNormalizerService();
-    $timestamp = new DateTimeImmutable('2026-03-10T10:20:30+00:00');
+    $timestamp = new \DateTimeImmutable('2026-03-10T10:20:30+00:00');
 
     $payload = $normalizer->normalize($container, 'stdout', 'Application started', $timestamp);
 
@@ -37,6 +37,9 @@ it('normalizes container log payloads', function () {
         'timestamp' => '2026-03-10T10:20:30+00:00',
         'swarm' => [
             'key' => 'main-swarm',
+        ],
+        'stack' => [
+            'name' => 'host-swarm',
         ],
         'service' => [
             'id' => 'service-123',

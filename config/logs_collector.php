@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 return [
+    'server_id' => env('SERVER_ID'),
     'swarm_key' => env('LOG_COLLECTOR_SWARM_KEY', 'main-swarm'),
     'queue' => env('LOG_COLLECTOR_QUEUE', 'default'),
     'retry_until_minutes' => (int) env('LOG_COLLECTOR_RETRY_UNTIL_MINUTES', 15),

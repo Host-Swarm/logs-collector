@@ -13,6 +13,7 @@ services:
       APP_DEBUG: "true"
       LOG_CHANNEL: single
       LOG_LEVEL: debug
+      SERVER_ID: local
 
       SESSION_DRIVER: file
       QUEUE_CONNECTION: sync

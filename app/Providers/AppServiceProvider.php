@@ -35,7 +35,8 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(LogBroadcaster::class, function (): LogBroadcaster {
             return new PusherLogBroadcaster(
-                channel: (string) config('logs_collector.pusher.channel'),
+                fallbackChannel: (string) config('logs_collector.pusher.channel'),
+                serverId: config('logs_collector.server_id'),
                 event: config('logs_collector.pusher.event'),
                 logger: $this->app->make(LoggerInterface::class),
                 logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),

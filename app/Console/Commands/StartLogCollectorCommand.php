@@ -44,7 +44,6 @@ final class StartLogCollectorCommand extends Command
         $timestamps = ! $this->option('no-timestamps');
         $interval = $this->option('interval');
         $intervalSeconds = $interval !== null ? (int) $interval : (int) config('logs_collector.discovery_interval', 30);
-        $seenContainers = [];
 
         $this->logger->info('Log collection started.', [
             'swarm_key' => $swarmKey,
@@ -56,11 +55,6 @@ final class StartLogCollectorCommand extends Command
             $containers = $this->discovery->discover($swarmKey);
 
             foreach ($containers as $container) {
-                if ($follow && isset($seenContainers[$container->containerId])) {
-                    continue;
-                }
-
-                $seenContainers[$container->containerId] = true;
                 $options = new LogStreamOptionsDTO(
                     tail: $tail,
                     follow: $follow,
@@ -70,6 +64,9 @@ final class StartLogCollectorCommand extends Command
                 );
 
                 if ($follow) {
+                    // ShouldBeUnique on StreamContainerLogsJob prevents duplicate jobs
+                    // per container. When a stream ends, the unique lock is released and
+                    // the next discovery run automatically re-dispatches a fresh stream.
                     StreamContainerLogsJob::dispatch($container, $options);
                 } else {
                     $job = new StreamContainerLogsJob($container, $options);

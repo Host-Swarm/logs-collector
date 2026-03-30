@@ -6,7 +6,7 @@ return [
     'server_id' => env('SERVER_ID'),
     'swarm_key' => env('LOG_COLLECTOR_SWARM_KEY', 'main-swarm'),
     'queue' => env('LOG_COLLECTOR_QUEUE', 'default'),
-    'retry_until_minutes' => (int) env('LOG_COLLECTOR_RETRY_UNTIL_MINUTES', 15),
+    'retry_until_minutes' => (int) env('LOG_COLLECTOR_RETRY_UNTIL_MINUTES', 10080),
     'discovery_interval' => (int) env('LOG_COLLECTOR_DISCOVERY_INTERVAL', 30),
     'docker' => [
         'socket_path' => env('DOCKER_SOCKET_PATH', '/var/run/docker.sock'),

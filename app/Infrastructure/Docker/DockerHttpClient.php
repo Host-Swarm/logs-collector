@@ -51,9 +51,10 @@ class DockerHttpClient
             throw new RuntimeException(sprintf('Docker stream request failed with status %d.', $status));
         }
 
-        if ($this->streamTimeout > 0) {
-            stream_set_timeout($socket, $this->streamTimeout);
-        }
+        // A streamTimeout of 0 means infinite — always override the general
+        // socket timeout set in openSocket() so long-running follow streams
+        // are never killed by a read timeout.
+        stream_set_timeout($socket, $this->streamTimeout);
 
         $isChunked = isset($headers['transfer-encoding']) && $headers['transfer-encoding'] === 'chunked';
         $chunkedBuffer = '';
@@ -69,11 +70,23 @@ class DockerHttpClient
             }
         }
 
-        while (! feof($socket)) {
+        while (true) {
+            if (feof($socket)) {
+                break;
+            }
+
             $chunk = fread($socket, 8192);
 
             if ($chunk === '' || $chunk === false) {
-                continue;
+                $meta = stream_get_meta_data($socket);
+
+                if ($meta['timed_out']) {
+                    // Transient read timeout — keep waiting for more data.
+                    continue;
+                }
+
+                // Real EOF or unrecoverable error.
+                break;
             }
 
             if ($isChunked) {

@@ -51,6 +51,15 @@ final class SwarmDiscoveryService
             $tasks = $this->resolveServiceTasks($serviceId);
 
             foreach ($tasks as $task) {
+                $desiredState = $task['DesiredState'] ?? null;
+                $currentState = $task['Status']['State'] ?? null;
+
+                // Skip tasks that are not in the running desired+current states.
+                // Dead, shutdown, or failed tasks have no live log stream.
+                if ($desiredState !== 'running' || $currentState !== 'running') {
+                    continue;
+                }
+
                 $containerId = $task['Status']['ContainerStatus']['ContainerID'] ?? null;
 
                 if (! is_string($containerId) || $containerId === '') {

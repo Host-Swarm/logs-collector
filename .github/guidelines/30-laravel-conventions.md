@@ -6,8 +6,7 @@ Use constructor dependency injection.
 Avoid static service access where possible.
 All configuration must be defined inside config files.
 Never call env() outside config.
-Use DTOs instead of raw arrays for log payloads.
-Queue long running tasks.
+Use DTOs instead of raw arrays for API payloads.
 Controllers must remain lightweight.
 Use structured logging with context values.
 
@@ -24,36 +23,34 @@ Use structured logging with context values.
 
 Create dedicated config files such as:
 
-- `config/docker.php`
-- `config/log_collector.php`
-- `config/upstream_socket.php`
+- `config/logs_collector.php` — all app-specific settings
 
 Do not scatter `env()` calls across app code.
 
-## Queues and jobs
+## HTTP Responses
 
-Use queued jobs for:
+- Return typed JSON responses from controllers.
+- Streaming responses use `response()->stream()` with `Content-Type: text/plain; charset=utf-8`.
+- Error responses always use `{"error": "message"}` with an appropriate HTTP status code.
+- Never expose exception stack traces in API responses.
 
-- reconnect attempts
-- deferred replay
-- background service discovery
-- backoff handling
-
-Jobs must be idempotent where possible.
-
-## Error handling
+## Error Handling
 
 Catch infrastructure exceptions at the boundary layer.
 Convert them into explicit domain-safe exceptions or structured result objects.
+Controllers catch `Throwable` at the top level and map to HTTP status codes.
 
 ## Logging
 
 Use structured logs.
 Every internal log context should include as relevant:
 
-- swarm_id or swarm_key
-- service name or service id
-- container id
-- stream id
-- upstream connection state
+- `container_id`
+- `endpoint` (logs | exec | stacks)
+- `auth_method` (server_secret | passport_token)
+- `error` (message only — never stack trace in structured context)
 
+## No Queues, No Broadcasting
+
+This application does not use queued jobs or broadcasting.
+Do not add `ShouldQueue`, event listeners, or Pusher-related code.

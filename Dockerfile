@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         intl \
         pcntl \
         bcmath \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -42,4 +43,6 @@ RUN mkdir -p storage/framework/cache \
     bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
-CMD ["sh", "-c", "php artisan metrics:collect --interval=5 & php artisan logs:collect & php artisan queue:work"]
+EXPOSE 8080
+
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8080"]

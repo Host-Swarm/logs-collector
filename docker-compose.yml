@@ -1,45 +1,39 @@
 version: "3.9"
 
 services:
-  logs-collector:
+  agent:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: host-swarm-logs-collector
+    container_name: host-swarm-agent
     restart: unless-stopped
+    ports:
+      - "8080:8080"
     environment:
-      APP_NAME: host-swarm-logs-collector
-      APP_ENV: local
-      APP_DEBUG: "true"
-      LOG_CHANNEL: single
-      LOG_LEVEL: debug
-      SERVER_ID: local
+      APP_NAME: host-swarm-agent
+      APP_ENV: production
+      APP_DEBUG: "false"
+      LOG_CHANNEL: stderr
+      LOG_LEVEL: info
 
-      SESSION_DRIVER: file
-      QUEUE_CONNECTION: sync
-      CACHE_STORE: file
+      # Shared secret for GET /api/stacks and GET /api/stacks/{stack}
+      SERVER_SECRET: "${SERVER_SECRET}"
 
-      LOG_COLLECTOR_SWARM_KEY: main-swarm
-      LOG_COLLECTOR_PUSHER_CHANNEL: swarm-logs
-      LOG_COLLECTOR_PUSHER_EVENT:
+      # Parent server-manager app for Passport token validation
+      PARENT_APP_URL: "${PARENT_APP_URL:-http://server-manager}"
+      PARENT_APP_TOKEN_VERIFY_PATH: /api/token/verify
+      PARENT_APP_TIMEOUT: 5
 
+      # Swarm
+      LOG_COLLECTOR_SWARM_KEY: "${LOG_COLLECTOR_SWARM_KEY:-main-swarm}"
+
+      # Docker socket
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-      DOCKER_BASE_URL: http://localhost
       DOCKER_TIMEOUT: 10
       DOCKER_CONNECT_TIMEOUT: 5
       DOCKER_STREAM_TIMEOUT: 0
-
-      PUSHER_APP_ID: app-id
-      PUSHER_APP_KEY: app-key
-      PUSHER_APP_SECRET: app-secret
-      PUSHER_HOST: soketi
-      PUSHER_PORT: 6001
-      PUSHER_SCHEME: http
-      PUSHER_APP_CLUSTER: mt1
-      PUSHER_SOCKET_PATH: /ws/swarm
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/var/www/html
     networks:
       - server_manager
 

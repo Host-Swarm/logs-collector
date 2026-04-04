@@ -54,8 +54,8 @@ final class ContainerLogsController extends Controller
                         'timestamps' => $timestamps,
                     ],
                     function (string $chunk) use ($parser): void {
-                        $parser->feed($chunk, function (string $line, string $stream): void {
-                            echo $stream.': '.$line."\n";
+                        $parser->feed($chunk, function (string $channel, string $payload): void {
+                            echo $channel.': '.$payload;
                             ob_flush();
                             flush();
                         });

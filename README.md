@@ -29,8 +29,8 @@ Host Swarm Agent (Laravel HTTP)
          ├── GET  /api/stacks                  Bearer: SERVER_SECRET
          ├── GET  /api/stacks/{stack}           Bearer: SERVER_SECRET
          │
-         ├── GET  /containers/{id}/logs         Passport one-time token (from server-manager)
-         └── GET  /containers/{id}/exec         Passport one-time token (from server-manager)
+         ├── GET  /api/containers/{id}/logs     Passport one-time token (from server-manager)
+         └── GET  /api/containers/{id}/exec     Passport one-time token (from server-manager)
                          │
                          ▼ (token validation)
                    server-manager (Laravel + Passport)
@@ -89,15 +89,17 @@ Returns a single stack with its services and their running containers/tasks.
 
 ## Container Endpoints — authenticated with one-time Passport token
 
-### `GET /containers/{containerId}/logs`
+### `GET /api/containers/{containerId}/logs`
 
-Streams logs from the given container. Accepts `?tail=100&stdout=1&stderr=1`.
+Streams logs from the given container. Accepts `?tail=100&stdout=1&stderr=1&timestamps=0&follow=1`.
 
-The response is a chunked HTTP stream of log lines with their stream type prefix.
+The response is a chunked HTTP stream of log lines in the format `stdout: <line>` or `stderr: <line>`.
 
-### `GET /containers/{containerId}/exec`
+### `GET /api/containers/{containerId}/exec`
 
-Opens an interactive exec session (WebSocket upgrade). Allows the caller to run commands inside the container.
+Opens an interactive exec session (WebSocket upgrade). Proxies raw bytes between the browser and a `/bin/sh` shell inside the container.
+
+**Note:** Requires a WebSocket-capable runtime (PHP built-in server, FrankenPHP, Swoole). Not supported under PHP-FPM.
 
 ---
 

@@ -1,52 +1,55 @@
 ---
 name: debug-log-forwarding
-description: Diagnose why host-swarm-logs-collector is not forwarding Docker Swarm container logs correctly to the upstream server-manager socket connection.
+description: Diagnose why host-swarm-agent is returning errors, failing authentication, or not streaming container logs or exec sessions correctly.
 ---
 # Purpose
 
-Use this skill when logs are missing, delayed, duplicated, malformed, or failing to reach the main server-manager app.
+Use this skill when an API endpoint is misbehaving: returning unexpected status codes, failing authentication, producing garbled log output, or failing to connect to the Docker socket.
 
 # Debug workflow
 
 Work through the pipeline in order:
 
-1. Docker access
+1. Authentication layer
 
-   - confirm docker socket mount assumptions
-   - confirm container/service discovery is working
-   - confirm logs are actually being read
-2. Normalization
+   - confirm the correct middleware is on the route
+   - for server secret: verify `SERVER_SECRET` env is set and the client is sending it correctly
+   - for Passport token: confirm `PARENT_APP_URL` is reachable from this container
+   - confirm the parent app's `/api/token/verify` endpoint is responding
+   - check if the token includes the expected container ID scope
 
-   - inspect raw lines
-   - inspect timestamp/channel parsing
-   - verify mapping to swarm > service > container > logs
-3. Outbound socket
+2. Container ID validation
 
-   - verify endpoint config
-   - verify auth / token / handshake assumptions
-   - verify reconnect state
-   - verify send and ack behavior if applicable
-4. Buffering / queues
+   - confirm the container ID in the URL is a valid hex string (12–64 chars)
+   - confirm the container exists in Docker (run `docker inspect <id>`)
 
-   - inspect dropped events
-   - inspect queue lag
-   - inspect replay or backoff behavior
-5. Upstream compatibility
+3. Docker access
 
-   - compare emitted payload with expected server-manager contract
+   - confirm the Docker socket is mounted at `DOCKER_SOCKET_PATH`
+   - confirm the agent can reach `/services`, `/tasks`, and `/containers/{id}/json`
+   - check Docker API timeout configuration
+
+4. Log streaming
+
+   - verify `DockerLogStreamService` is sending correct query params (stdout, stderr, follow, tail)
+   - confirm Docker log frame parsing handles both TTY and non-TTY containers
+   - check for premature stream closure or buffering issues in the HTTP response
+
+5. Exec session
+
+   - confirm exec create and exec start calls are succeeding
+   - confirm the WebSocket upgrade is being handled correctly
 
 # Required deliverable
 
 Return findings under:
 
 - probable root cause
-- evidence
+- evidence (log output, config values, test results)
 - minimal fix
-- hardening recommendations
 - tests to add
 
 # Important rules
 
-Do not jump to websocket blame first.
-Trace the pipeline from source to destination.
-Prefer evidence from logs, config, tests, and code paths.
+Do not assume authentication is the problem first — trace from the route through middleware, Docker, and response.
+Never log or expose token values or the server secret in diagnostic output.

@@ -1,10 +1,11 @@
 # Checklist
 
-- [ ]  Docker socket access verified
-- [ ]  Service/container discovery verified
-- [ ]  Raw log read path verified
-- [ ]  Normalized payload inspected
-- [ ]  Upstream socket config inspected
-- [ ]  Retry / reconnect state inspected
-- [ ]  Queue or buffering path inspected
+- [ ]  Correct middleware verified on route
+- [ ]  Auth mechanism verified (server secret or Passport token)
+- [ ]  Parent app reachability verified (for Passport token validation)
+- [ ]  Container ID format validated
+- [ ]  Docker socket connectivity verified
+- [ ]  Docker API response inspected
+- [ ]  Log streaming or exec flow traced
 - [ ]  Root cause and fix proposed
+- [ ]  No token or secret values in diagnostic output

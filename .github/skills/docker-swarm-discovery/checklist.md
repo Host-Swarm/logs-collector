@@ -1,13 +1,14 @@
 # Docker Swarm Discovery Checklist
 
-- [ ] Docker access is isolated in `App\Infrastructure\Docker`
-- [ ] Discovery does not rely on controllers or HTTP routes
-- [ ] Services, tasks, and containers are mapped explicitly
-- [ ] Partial / missing task-container mappings are handled safely
-- [ ] Output is normalized into typed DTOs or stable contracts
-- [ ] Only required metadata is collected
-- [ ] Structured logs are emitted for discovery counts and failures
-- [ ] Tests cover happy path and degraded path
-- [ ] No destructive Docker action was introduced
-- [ ] No raw user input is passed directly into Docker calls
-
+- [ ]  Services fetched and grouped into stacks by `com.docker.stack.namespace` label
+- [ ]  Tasks fetched per service and filtered to running state
+- [ ]  Containers resolved per running task
+- [ ]  `StackDTO`, `ServiceDTO`, `ContainerDTO` typed and stable
+- [ ]  Docker infrastructure isolated in `App\Infrastructure\Docker`
+- [ ]  Domain service handles mapping/grouping in `App\Domain\Docker\Services`
+- [ ]  Partial results returned when container resolve fails (no full pipeline crash)
+- [ ]  No raw Docker response shapes exposed directly via API
+- [ ]  Structured logs emitted for discovery counts and failures
+- [ ]  Tests: happy path, empty swarm, missing task container, Docker socket failure
+- [ ]  No destructive Docker action introduced
+- [ ]  No raw user input passed into Docker API calls

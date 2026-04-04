@@ -24,7 +24,21 @@ This application is a Laravel application and its main Laravel ecosystems packag
 
 This project has domain-specific skills available. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
 
-- `pest-testing` — Tests applications using the Pest 4 PHP framework. Activates when writing tests, creating unit or feature tests, adding assertions, testing Livewire components, browser testing, debugging test failures, working with datasets or mocking; or when the user mentions test, spec, TDD, expects, assertion, coverage, or needs to verify functionality works.
+- `pest-testing` — Tests applications using the Pest 4 PHP framework. Activates when writing tests, creating unit or feature tests, adding assertions, debugging test failures, working with datasets or mocking; or when the user mentions test, spec, TDD, expects, assertion, coverage, or needs to verify functionality works.
+
+- `implement-stack-api` — Activates when working on `GET /api/stacks` or `GET /api/stacks/{stack}`, `SwarmDiscoveryService`, `StackDTO`/`ServiceDTO`/`ContainerDTO`, or `ServerSecretMiddleware`.
+
+- `implement-log-stream` — Activates when working on `GET /containers/{id}/logs`, `DockerLogStreamService`, `DockerLogFrameParser`, chunked streaming responses, or log query parameters.
+
+- `implement-exec-endpoint` — Activates when working on `GET /containers/{id}/exec`, `DockerExecService`, WebSocket exec sessions, or interactive container shell access.
+
+- `implement-passport-auth` — Activates when working on `PassportOneTimeMiddleware`, `PassportTokenValidator`, `ServerSecretMiddleware`, token validation against the parent app, or any auth middleware.
+
+- `docker-swarm-discovery` — Activates when working on Docker service/task/container discovery, stack grouping by label, `SwarmDiscoveryService`, or Docker infrastructure DTOs.
+
+- `review-docker-socket-exposure` — Activates when reviewing security of any Docker-touching code path, exec safety, auth middleware correctness, or input validation before Docker API calls.
+
+- `debug-log-forwarding` — Activates when diagnosing API endpoint failures, auth issues, Docker connectivity problems, streaming errors, or exec session failures.
 
 ## Conventions
 

@@ -2,16 +2,12 @@
 
 namespace App\Providers;
 
-use App\Domain\Logs\Contracts\LogBroadcaster;
-use App\Domain\Logs\Contracts\LogStreamService;
-use App\Domain\Logs\Services\LogNormalizerService;
-use App\Domain\Logs\Services\LogObserverService;
-use App\Domain\Metrics\Contracts\SystemMetricsProvider;
-use App\Domain\Metrics\Services\HostMetricsService;
-use App\Infrastructure\Broadcasting\PusherLogBroadcaster;
+use App\Domain\Auth\Contracts\TokenValidator;
+use App\Domain\Docker\Services\StackService;
+use App\Domain\Docker\Services\SwarmDiscoveryService;
+use App\Infrastructure\Auth\PassportTokenValidator;
+use App\Infrastructure\Docker\DockerExecService;
 use App\Infrastructure\Docker\DockerHttpClient;
-use App\Infrastructure\Docker\DockerLogStreamService;
-use App\Infrastructure\System\LinuxProcMetricsProvider;
 use Illuminate\Support\ServiceProvider;
 use Psr\Log\LoggerInterface;
 
@@ -31,41 +27,32 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->bind(LogStreamService::class, DockerLogStreamService::class);
-
-        $this->app->singleton(LogBroadcaster::class, function (): LogBroadcaster {
-            return new PusherLogBroadcaster(
-                fallbackChannel: (string) config('logs_collector.pusher.channel'),
-                serverId: config('logs_collector.server_id'),
-                event: config('logs_collector.pusher.event'),
+        $this->app->singleton(SwarmDiscoveryService::class, function (): SwarmDiscoveryService {
+            return new SwarmDiscoveryService(
+                docker: $this->app->make(DockerHttpClient::class),
                 logger: $this->app->make(LoggerInterface::class),
-                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
             );
         });
 
-        $this->app->bind(LogObserverService::class, function (): LogObserverService {
-            $environment = (string) config('app.env');
-
-            return new LogObserverService(
-                streamService: $this->app->make(LogStreamService::class),
-                normalizer: $this->app->make(LogNormalizerService::class),
-                broadcaster: $this->app->make(LogBroadcaster::class),
-                logger: $this->app->make(LoggerInterface::class),
-                logDevelopmentFormat: in_array($environment, ['local', 'development'], true),
-                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
-                logPayloads: (bool) config('logs_collector.log_payloads', false),
+        $this->app->singleton(StackService::class, function (): StackService {
+            return new StackService(
+                discovery: $this->app->make(SwarmDiscoveryService::class),
             );
         });
 
-        $this->app->bind(SystemMetricsProvider::class, LinuxProcMetricsProvider::class);
-
-        $this->app->bind(HostMetricsService::class, function (): HostMetricsService {
-            return new HostMetricsService(
-                provider: $this->app->make(SystemMetricsProvider::class),
-                broadcaster: $this->app->make(LogBroadcaster::class),
+        $this->app->singleton(DockerExecService::class, function (): DockerExecService {
+            return new DockerExecService(
+                docker: $this->app->make(DockerHttpClient::class),
                 logger: $this->app->make(LoggerInterface::class),
-                logSocketErrors: (bool) config('logs_collector.upstream.log_socket_errors', false),
-                logPayloads: (bool) config('logs_collector.log_payloads', false),
+            );
+        });
+
+        $this->app->bind(TokenValidator::class, function (): TokenValidator {
+            return new PassportTokenValidator(
+                parentAppUrl: (string) config('logs_collector.parent_app.url'),
+                verifyPath: (string) config('logs_collector.parent_app.token_verify_path'),
+                timeoutSeconds: (int) config('logs_collector.parent_app.timeout'),
+                logger: $this->app->make(LoggerInterface::class),
             );
         });
     }

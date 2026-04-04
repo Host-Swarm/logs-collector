@@ -1,40 +1,67 @@
 # Architecture Rules
 
-Follow these boundaries:
+Follow these boundaries strictly.
 
-## Core flow
+## Request flow
 
-1. Connect to Docker through the mounted Docker socket.
-2. Resolve swarm services and running containers.
-3. Subscribe to or tail container logs.
-4. Convert raw log lines into a normalized event payload.
-5. Push events to the main `server-manager` socket connection.
-6. Retry safely when Docker or websocket connectivity is interrupted.
+```
+HTTP Request
+     │
+     ▼
+Middleware (ServerSecretMiddleware | PassportOneTimeMiddleware)
+     │
+     ▼
+Controller (thin — route dispatch only)
+     │
+     ▼
+Domain Service (orchestration, business logic)
+     │
+     ▼
+Infrastructure Layer (Docker HTTP client, Auth HTTP client)
+     │
+     ▼
+HTTP Response (JSON | Streamed log | WebSocket exec)
+```
 
 ## Layers
 
 Use clear Laravel-oriented layers:
 
-- `App\Domain\Logs\DTOs` for transport-safe structured payloads
-- `App\Domain\Logs\Actions` for single-purpose business actions
-- `App\Domain\Logs\Services` for orchestration logic
-- `App\Infrastructure\Docker` for Docker socket communication
-- `App\Infrastructure\Sockets` for outbound websocket/socket communication
-- `App\Console\Commands` only for startup, maintenance, or manual replay commands
-- `App\Jobs` for queued or reconnect/recovery tasks
-- `App\Events` only for internal app events, not as the primary external transport model
+- `App\Domain\Docker\DTOs` — typed response shapes for stacks, services, containers
+- `App\Domain\Docker\Services` — orchestration: SwarmDiscoveryService, ContainerLogService, ContainerExecService
+- `App\Domain\Auth\Contracts` — interface for token validation
+- `App\Infrastructure\Docker` — raw Docker socket communication (DockerHttpClient, DockerLogStreamService, DockerExecService, DockerLogFrameParser)
+- `App\Infrastructure\Auth` — PassportTokenValidator (HTTP call to parent app)
+- `App\Http\Controllers` — thin; reads request params, calls services, returns responses
+- `App\Http\Middleware` — ServerSecretMiddleware, PassportOneTimeMiddleware
+- `App\Console\Commands` — only for maintenance or diagnostics; no HTTP-equivalent logic here
 
-Controllers should remain thin.
-Do not place Docker traversal or websocket retry logic inside controllers.
+## Route groups
+
+```
+/api/stacks          → ServerSecretMiddleware
+/api/stacks/{stack}  → ServerSecretMiddleware
+/containers/{id}/logs → PassportOneTimeMiddleware
+/containers/{id}/exec → PassportOneTimeMiddleware
+```
 
 ## State
 
-Prefer stateless processing.
-Persist only what is necessary for:
+This application is **stateless** — no database, no sessions, no persistent token store.
 
-- stream checkpoints
-- reconnect metadata
-- rate limiting / deduplication
-- health and diagnostics
+- Stack/service API: authenticate on each request via constant-time secret comparison.
+- Log/exec API: validate the Passport token on each request via HTTP call to parent app. Never cache or reuse the validation result.
 
-Do not store full raw logs indefinitely unless explicitly required.
+## Controllers
+
+Controllers must remain thin:
+- Extract and validate the request parameter (container ID format, query params).
+- Delegate to domain services.
+- Return the typed response or initiate the stream.
+- Never place Docker logic, auth logic, or retry logic inside controllers.
+
+## No broadcasting
+
+This app does **not** broadcast logs to Pusher/Soketi or any WebSocket upstream.
+Broadcasting infrastructure (PusherLogBroadcaster, LogBroadcaster contract) does not belong in this codebase.
+Log streaming is done by responding to HTTP requests with a chunked/streaming response.

@@ -36,6 +36,66 @@ class DockerHttpClient
     }
 
     /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function postJson(string $path, array $body = []): array
+    {
+        $response = $this->requestWithBody('POST', $path, $body);
+
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw new RuntimeException(sprintf('Docker API POST failed with status %d: %s', $response['status'], $response['body']));
+        }
+
+        if ($response['body'] === '' || $response['body'] === 'null') {
+            return [];
+        }
+
+        $data = json_decode($response['body'], true);
+
+        if (! is_array($data)) {
+            throw new RuntimeException('Docker API POST response was not valid JSON.');
+        }
+
+        return $data;
+    }
+
+    /**
+     * Opens a raw hijacked stream to Docker (used for exec start).
+     * Returns the open socket after consuming the 101 response headers.
+     *
+     * @param  array<string, mixed>  $body
+     * @return resource
+     */
+    public function openHijackedStream(string $path, array $body = [])
+    {
+        $jsonBody = json_encode($body, JSON_THROW_ON_ERROR);
+        $bodyLength = strlen($jsonBody);
+
+        $request = sprintf(
+            "POST %s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\nContent-Type: application/json\r\nContent-Length: %d\r\nUpgrade: tcp\r\nConnection: Upgrade\r\n\r\n%s",
+            $path,
+            $bodyLength,
+            $jsonBody,
+        );
+
+        $socket = $this->openSocket();
+        stream_set_timeout($socket, $this->streamTimeout);
+        fwrite($socket, $request);
+
+        [$status] = $this->readHeaders($socket);
+
+        // Docker responds with 101 Switching Protocols for hijacked exec streams.
+        // 200 is also acceptable for non-TTY attach.
+        if ($status !== 101 && $status !== 200) {
+            fclose($socket);
+            throw new RuntimeException(sprintf('Docker exec start failed with status %d.', $status));
+        }
+
+        return $socket;
+    }
+
+    /**
      * @param  callable(string $chunk): void  $onChunk
      */
     public function stream(string $path, array $query, callable $onChunk): void
@@ -103,6 +163,52 @@ class DockerHttpClient
     }
 
     /**
+     * @param  array<string, mixed>  $body
+     * @return array{status: int, headers: array<string, string>, body: string}
+     */
+    private function requestWithBody(string $method, string $path, array $body = []): array
+    {
+        $jsonBody = json_encode($body, JSON_THROW_ON_ERROR);
+        $bodyLength = strlen($jsonBody);
+
+        $socket = $this->openSocket();
+        $request = sprintf(
+            "%s %s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+            $method,
+            $path,
+            $bodyLength,
+            $jsonBody,
+        );
+
+        fwrite($socket, $request);
+
+        [$status, $headers, $buffer] = $this->readHeaders($socket);
+        $responseBody = $buffer;
+
+        while (! feof($socket)) {
+            $chunk = fread($socket, 8192);
+
+            if ($chunk === '' || $chunk === false) {
+                continue;
+            }
+
+            $responseBody .= $chunk;
+        }
+
+        fclose($socket);
+
+        if (isset($headers['transfer-encoding']) && $headers['transfer-encoding'] === 'chunked') {
+            $responseBody = $this->decodeChunked($responseBody);
+        }
+
+        return [
+            'status' => $status,
+            'headers' => $headers,
+            'body' => $responseBody,
+        ];
+    }
+
+    /**
      * @return array{status: int, headers: array<string, string>, body: string}
      */
     private function request(string $method, string $path, array $query = []): array
@@ -163,7 +269,7 @@ class DockerHttpClient
         $queryString = $query === [] ? '' : '?'.http_build_query($query);
 
         return sprintf(
-            "%s %s%s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-logs-collector\r\nConnection: close\r\n\r\n",
+            "%s %s%s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\nConnection: close\r\n\r\n",
             $method,
             $path,
             $queryString,

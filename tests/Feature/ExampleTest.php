@@ -1,7 +1,7 @@
 <?php
 
-test('the application returns a successful response', function () {
-    $response = $this->get('/');
+test('the health endpoint returns a successful response', function () {
+    $response = $this->get('/up');
 
     $response->assertSuccessful();
 });

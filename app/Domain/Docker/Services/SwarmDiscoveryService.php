@@ -11,7 +11,7 @@ use DateTimeZone;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-final class SwarmDiscoveryService
+class SwarmDiscoveryService
 {
     public function __construct(
         private DockerHttpClient $docker,

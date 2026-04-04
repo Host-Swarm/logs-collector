@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Domain\Logs\Services\SwarmDiscoveryService;
+use App\Domain\Docker\Services\SwarmDiscoveryService;
 use App\Infrastructure\Docker\DockerHttpClient;
 use Psr\Log\NullLogger;
 

@@ -9,7 +9,7 @@ use App\Domain\Docker\DTOs\DiscoveredContainerDTO;
 use App\Domain\Docker\DTOs\ServiceDTO;
 use App\Domain\Docker\DTOs\StackDTO;
 
-final class StackService
+class StackService
 {
     public function __construct(
         private SwarmDiscoveryService $discovery,

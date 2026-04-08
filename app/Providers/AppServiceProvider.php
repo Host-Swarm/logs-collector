@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Domain\Auth\Contracts\ScopedTokenValidator;
 use App\Domain\Auth\Contracts\TokenValidator;
 use App\Domain\Docker\Contracts\ExecService;
 use App\Domain\Docker\Services\StackService;
 use App\Domain\Docker\Services\SwarmDiscoveryService;
+use App\Infrastructure\Auth\AccessTokenValidator;
 use App\Infrastructure\Auth\PassportTokenValidator;
 use App\Infrastructure\Docker\DockerExecService;
 use App\Infrastructure\Docker\DockerHttpClient;
@@ -52,6 +54,14 @@ class AppServiceProvider extends ServiceProvider
             return new PassportTokenValidator(
                 parentAppUrl: (string) config('logs_collector.parent_app.url'),
                 verifyPath: (string) config('logs_collector.parent_app.token_verify_path'),
+                timeoutSeconds: (int) config('logs_collector.parent_app.timeout'),
+                logger: $this->app->make(LoggerInterface::class),
+            );
+        });
+
+        $this->app->bind(ScopedTokenValidator::class, function (): ScopedTokenValidator {
+            return new AccessTokenValidator(
+                serverUrl: (string) config('logs_collector.server_url'),
                 timeoutSeconds: (int) config('logs_collector.parent_app.timeout'),
                 logger: $this->app->make(LoggerInterface::class),
             );

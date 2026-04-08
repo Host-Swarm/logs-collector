@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 use App\Domain\Docker\DTOs\DiscoveredContainerDTO;
 use App\Domain\Docker\Services\SwarmDiscoveryService;
+use App\Http\Middleware\AccessTokenMiddleware;
+
+beforeEach(fn () => $this->withoutMiddleware(AccessTokenMiddleware::class));
 
 function fakeDiscovery(array $containers): SwarmDiscoveryService
 {

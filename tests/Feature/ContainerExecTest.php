@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use App\Domain\Docker\Contracts\ExecService;
+use App\Http\Middleware\AccessTokenMiddleware;
 use App\Infrastructure\Docker\DockerApiException;
 use App\Infrastructure\Docker\DockerHttpClient;
+
+beforeEach(fn () => $this->withoutMiddleware(AccessTokenMiddleware::class));
 
 function fakeDockerClientForExec(int $statusCode): void
 {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 return [
     'server_id' => env('SERVER_ID'),
+    'server_url' => env('SERVER_URL'),
     'connection_key' => env('CONNECTION_KEY'),
     'server_secret' => env('SERVER_SECRET'),
     'swarm_key' => env('LOG_COLLECTOR_SWARM_KEY', 'main-swarm'),

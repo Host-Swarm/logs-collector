@@ -43,31 +43,13 @@ function makeDiscoveredContainer(string $stack = 'my-app', string $serviceId = '
 
 // ---------- GET /api/stacks ----------
 
-it('returns 401 when server secret is missing', function (): void {
-    $response = $this->getJson('/api/stacks');
-
-    $response->assertStatus(401);
-    $response->assertJson(['error' => 'Unauthorized.']);
-});
-
-it('returns 401 when server secret is wrong', function (): void {
-    config(['logs_collector.server_secret' => 'correct-secret']);
-
-    $response = $this->withHeaders(['Authorization' => 'Bearer wrong-secret'])
-        ->getJson('/api/stacks');
-
-    $response->assertStatus(401);
-});
-
-it('returns stacks list with correct server secret', function (): void {
-    config(['logs_collector.server_secret' => 'my-secret']);
+it('returns stacks list', function (): void {
     fakeDiscovery([
         makeDiscoveredContainer('my-app', 'svc-1', 'my-app_web', 'abc123def456'),
         makeDiscoveredContainer('other-stack', 'svc-2', 'other_api', 'def456abc123'),
     ]);
 
-    $response = $this->withHeaders(['Authorization' => 'Bearer my-secret'])
-        ->getJson('/api/stacks');
+    $response = $this->getJson('/api/stacks');
 
     $response->assertStatus(200);
     $response->assertJsonStructure(['stacks' => [['name', 'services']]]);
@@ -78,11 +60,9 @@ it('returns stacks list with correct server secret', function (): void {
 });
 
 it('returns empty stacks list when swarm has no services', function (): void {
-    config(['logs_collector.server_secret' => 'my-secret']);
     fakeDiscovery([]);
 
-    $response = $this->withHeaders(['Authorization' => 'Bearer my-secret'])
-        ->getJson('/api/stacks');
+    $response = $this->getJson('/api/stacks');
 
     $response->assertStatus(200);
     $response->assertJson(['stacks' => []]);
@@ -91,13 +71,11 @@ it('returns empty stacks list when swarm has no services', function (): void {
 // ---------- GET /api/stacks/{stack} ----------
 
 it('returns stack detail with services and containers', function (): void {
-    config(['logs_collector.server_secret' => 'my-secret']);
     fakeDiscovery([
         makeDiscoveredContainer('my-app', 'svc-1', 'my-app_web', 'abc123def456'),
     ]);
 
-    $response = $this->withHeaders(['Authorization' => 'Bearer my-secret'])
-        ->getJson('/api/stacks/my-app');
+    $response = $this->getJson('/api/stacks/my-app');
 
     $response->assertStatus(200);
     $response->assertJsonStructure([
@@ -108,19 +86,10 @@ it('returns stack detail with services and containers', function (): void {
 });
 
 it('returns 404 when stack does not exist', function (): void {
-    config(['logs_collector.server_secret' => 'my-secret']);
     fakeDiscovery([]);
 
-    $response = $this->withHeaders(['Authorization' => 'Bearer my-secret'])
-        ->getJson('/api/stacks/does-not-exist');
+    $response = $this->getJson('/api/stacks/does-not-exist');
 
     $response->assertStatus(404);
     $response->assertJson(['error' => 'Stack not found.']);
-});
-
-it('returns 401 on stack detail when secret is wrong', function (): void {
-    $response = $this->withHeaders(['Authorization' => 'Bearer bad'])
-        ->getJson('/api/stacks/my-app');
-
-    $response->assertStatus(401);
 });

@@ -43,6 +43,10 @@ final class ContainerExecController extends Controller
             return response()->json(['error' => 'Missing Sec-WebSocket-Key header.'], 400);
         }
 
+        if (! preg_match('/^[a-f0-9]{12,64}$/', $containerId)) {
+            return response()->json(['error' => 'Invalid container ID.'], 400);
+        }
+
         // Verify the container exists before upgrading — we can still return proper
         // error codes at this point because headers haven't been sent yet.
         try {

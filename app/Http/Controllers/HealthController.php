@@ -50,7 +50,7 @@ final class HealthController extends Controller
     {
         return [
             'name' => $stack->name,
-            'log_viewer_url' => url('/api/logs/'.rawurlencode($stack->name)),
+            'log_viewer_url' => url('/logs/'.rawurlencode($stack->name)),
             'services' => array_map(fn (ServiceDTO $service) => $this->formatService($stack->name, $service), $stack->services),
         ];
     }
@@ -66,7 +66,7 @@ final class HealthController extends Controller
             'mode' => $service->mode,
             'replicas' => $service->replicas,
             'image' => $service->image,
-            'log_viewer_url' => url('/api/logs/'.rawurlencode($stackName).'/'.rawurlencode($service->name)),
+            'log_viewer_url' => url('/logs/'.rawurlencode($stackName).'/'.rawurlencode($service->name)),
             'containers' => array_map(
                 fn (ContainerDTO $container) => $this->formatContainer($stackName, $service->name, $container),
                 $service->containers,
@@ -89,7 +89,7 @@ final class HealthController extends Controller
             'task_slot' => $container->taskSlot,
             'image' => $container->image,
             'log_viewer_url' => url(
-                '/api/logs/'.rawurlencode($stackName).'/'.rawurlencode($serviceName).'/'.rawurlencode($container->id),
+                '/logs/'.rawurlencode($stackName).'/'.rawurlencode($serviceName).'/'.rawurlencode($container->id),
             ),
         ];
     }

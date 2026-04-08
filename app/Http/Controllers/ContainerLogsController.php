@@ -25,28 +25,6 @@ final class ContainerLogsController extends Controller
             return response()->json(['error' => 'Invalid container ID.'], 400);
         }
 
-        try {
-            $this->docker->getJson("/containers/{$containerId}/json");
-        } catch (DockerApiException $exception) {
-            if ($exception->isNotFound()) {
-                return response()->json(['error' => 'Container not found.'], 404);
-            }
-
-            $this->logger->error('Docker unavailable during container inspect.', [
-                'container_id' => $containerId,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return response()->json(['error' => 'Docker unavailable.'], 503);
-        } catch (Throwable $exception) {
-            $this->logger->error('Unexpected error during container inspect.', [
-                'container_id' => $containerId,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return response()->json(['error' => 'Docker unavailable.'], 503);
-        }
-
         $stdout = filter_var($request->query('stdout', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $stderr = filter_var($request->query('stderr', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $follow = filter_var($request->query('follow', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';

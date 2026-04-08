@@ -8,9 +8,12 @@ use App\Domain\Docker\DTOs\ContainerDTO;
 use App\Domain\Docker\DTOs\DiscoveredContainerDTO;
 use App\Domain\Docker\DTOs\ServiceDTO;
 use App\Domain\Docker\DTOs\StackDTO;
+use Illuminate\Support\Facades\Cache;
 
 class StackService
 {
+    private const int CACHE_TTL_SECONDS = 30;
+
     public function __construct(
         private SwarmDiscoveryService $discovery,
     ) {}
@@ -22,9 +25,11 @@ class StackService
      */
     public function listStacks(string $swarmKey): array
     {
-        $containers = $this->discovery->discover($swarmKey);
-
-        return $this->buildStacks($containers);
+        return Cache::remember(
+            "stacks:discovery:{$swarmKey}",
+            self::CACHE_TTL_SECONDS,
+            fn () => $this->buildStacks($this->discovery->discover($swarmKey)),
+        );
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Domain\Auth\Contracts\TokenValidator;
+use App\Domain\Docker\Contracts\ExecService;
 use App\Domain\Docker\Services\StackService;
 use App\Domain\Docker\Services\SwarmDiscoveryService;
 use App\Infrastructure\Auth\PassportTokenValidator;
@@ -40,7 +41,7 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(DockerExecService::class, function (): DockerExecService {
+        $this->app->singleton(ExecService::class, function (): ExecService {
             return new DockerExecService(
                 docker: $this->app->make(DockerHttpClient::class),
                 logger: $this->app->make(LoggerInterface::class),

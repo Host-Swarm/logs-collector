@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Docker;
 
+use App\Domain\Docker\Contracts\ExecService;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Throwable;
 
-final class DockerExecService
+final class DockerExecService implements ExecService
 {
     public function __construct(
         private DockerHttpClient $docker,

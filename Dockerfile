@@ -1,4 +1,6 @@
-FROM php:8.4-cli-bookworm
+# FrankenPHP is required for WebSocket support (exec endpoint).
+# php artisan serve does not support connection hijacking / WebSocket upgrades.
+FROM dunglas/frankenphp:1-php8.4-bookworm
 
 WORKDIR /var/www/html
 
@@ -8,23 +10,16 @@ ENV LOG_CHANNEL=stderr
 # Dummy key so artisan can boot during image build (overridden at runtime via env).
 ENV APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
-# Install system deps for PHP extensions + Node.js 22 LTS
+# Install system deps for PHP extensions + Node.js 22 LTS.
+# FrankenPHP pre-installs curl; install-php-extensions handles idempotent extension installs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     unzip \
-    curl \
-    libzip-dev \
-    libicu-dev \
-    libonig-dev \
-    libxml2-dev \
-    libcurl4-openssl-dev \
-    pkg-config \
     ca-certificates \
-    && docker-php-ext-install \
+    && install-php-extensions \
         intl \
         pcntl \
         bcmath \
-        curl \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -70,4 +65,5 @@ RUN php artisan config:cache \
 
 EXPOSE 8080
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8080"]
+# frankenphp php-server handles WebSocket upgrades and connection hijacking correctly.
+CMD ["frankenphp", "php-server", "--listen", ":8080", "--root", "/var/www/html/public"]

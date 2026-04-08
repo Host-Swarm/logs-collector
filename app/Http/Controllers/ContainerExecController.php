@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Domain\Docker\Contracts\ExecService;
 use App\Infrastructure\Docker\DockerApiException;
-use App\Infrastructure\Docker\DockerExecService;
 use App\Infrastructure\Docker\DockerHttpClient;
 use Illuminate\Http\Request;
 use Psr\Log\LoggerInterface;
@@ -14,7 +14,7 @@ use Throwable;
 final class ContainerExecController extends Controller
 {
     public function __construct(
-        private DockerExecService $execService,
+        private ExecService $execService,
         private DockerHttpClient $docker,
         private LoggerInterface $logger,
     ) {}

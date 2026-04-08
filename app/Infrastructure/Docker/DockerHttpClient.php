@@ -106,6 +106,42 @@ class DockerHttpClient
     }
 
     /**
+     * Opens a raw streaming GET connection to Docker (used for log follow).
+     * Consumes the HTTP headers and returns the open socket with any buffered
+     * body data. The caller is responsible for reading and closing the socket.
+     *
+     * @return array{socket: resource, buffer: string, chunked: bool}
+     */
+    public function openStreamSocket(string $path, array $query = []): array
+    {
+        $socket = $this->openSocket();
+        $request = $this->buildStreamRequest('GET', $path, $query);
+        fwrite($socket, $request);
+
+        [$status, $headers, $buffer] = $this->readHeaders($socket);
+
+        if ($status < 200 || $status >= 300) {
+            fclose($socket);
+            throw new DockerApiException(
+                sprintf('Docker stream request failed with status %d.', $status),
+                $status,
+            );
+        }
+
+        stream_set_timeout($socket, $this->streamTimeout);
+        stream_set_blocking($socket, false);
+
+        $isChunked = isset($headers['transfer-encoding'])
+            && $headers['transfer-encoding'] === 'chunked';
+
+        return [
+            'socket' => $socket,
+            'buffer' => $buffer,
+            'chunked' => $isChunked,
+        ];
+    }
+
+    /**
      * @param  callable(string $chunk): void  $onChunk
      */
     public function stream(string $path, array $query, callable $onChunk): void
@@ -293,6 +329,22 @@ class DockerHttpClient
     }
 
     /**
+     * Builds an HTTP request without Connection: close so Docker keeps the
+     * connection open for long-running streams (e.g. follow=1 log tailing).
+     */
+    private function buildStreamRequest(string $method, string $path, array $query = []): string
+    {
+        $queryString = $query === [] ? '' : '?'.http_build_query($query);
+
+        return sprintf(
+            "%s %s%s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\n\r\n",
+            $method,
+            $path,
+            $queryString,
+        );
+    }
+
+    /**
      * @param  resource  $socket
      * @return array{0: int, 1: array<string, string>, 2: string}
      */
@@ -363,7 +415,7 @@ class DockerHttpClient
     /**
      * @return array{0: string, 1: string}
      */
-    private function decodeChunkedStream(string $payload): array
+    public function decodeChunkedStream(string $payload): array
     {
         $decoded = '';
 

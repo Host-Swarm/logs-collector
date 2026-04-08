@@ -53,7 +53,7 @@ function buildTerminal() {
 }
 
 // ── Single-container log viewer ────────────────────────────────────────────
-// options: { term?, label?, labelColor?, signal? }
+
 class LogViewer {
     constructor(containerId, options = {}) {
         this.containerId = containerId;
@@ -91,13 +91,7 @@ class LogViewer {
     }
 
     stream() {
-        let signal;
-        if (this.externalSignal) {
-            signal = this.externalSignal;
-        } else {
-            this.ownAbort = new AbortController();
-            signal = this.ownAbort.signal;
-        }
+        const signal = this.externalSignal ?? (this.ownAbort = new AbortController()).signal;
 
         const run = async () => {
             let lastTimestamp = null;
@@ -116,12 +110,9 @@ class LogViewer {
                 });
 
                 if (lastTimestamp !== null) {
-                    // Use since= to resume from last seen log line.
-                    // Do NOT set tail= here — omitting it lets Docker return all
-                    // buffered lines after the given timestamp before following live.
                     params.set('since', lastTimestamp);
                 } else {
-                    params.set('tail', 'all');
+                    params.set('tail', '100');
                 }
 
                 try {
@@ -156,47 +147,36 @@ class LogViewer {
 
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
-                    // Binary accumulator for Docker multiplexed frame parsing
                     let bytes = new Uint8Array(0);
-
-                    const append = (chunk) => {
-                        const merged = new Uint8Array(bytes.length + chunk.length);
-                        merged.set(bytes);
-                        merged.set(chunk, bytes.length);
-                        bytes = merged;
-                    };
 
                     while (true) {
                         const { done, value } = await reader.read();
-                        if (done) {
-                            break;
-                        }
+                        if (done) break;
 
-                        append(value);
+                        // Append incoming chunk
+                        const merged = new Uint8Array(bytes.length + value.length);
+                        merged.set(bytes);
+                        merged.set(value, bytes.length);
+                        bytes = merged;
 
                         // Docker multiplexed log frame: 8-byte header + payload
-                        // Header: [stream_type(1), 0, 0, 0, size_big_endian(4)]
                         while (bytes.length >= 8) {
                             const payloadLen =
                                 (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
 
-                            if (bytes.length < 8 + payloadLen) {
-                                break; // wait for more data
-                            }
+                            if (bytes.length < 8 + payloadLen) break;
 
                             const payload = bytes.slice(8, 8 + payloadLen);
                             bytes = bytes.slice(8 + payloadLen);
 
                             const text = decoder.decode(payload);
-
                             for (const line of text.split('\n')) {
                                 const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
-                                if (trimmed === '') {
-                                    continue;
-                                }
+                                if (trimmed === '') continue;
 
-                                // Strip and track the Docker RFC3339Nano timestamp for since= on reconnect
-                                const tsMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /);
+                                const tsMatch = trimmed.match(
+                                    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /,
+                                );
                                 if (tsMatch) {
                                     lastTimestamp = tsMatch[1];
                                     this.writeLine(trimmed.slice(tsMatch[0].length));
@@ -207,15 +187,12 @@ class LogViewer {
                         }
                     }
 
-                    // Stream ended cleanly — reconnect immediately using since= to avoid gaps
                     if (!this.externalTerm) {
                         this.setStatus('Reconnecting...', 'connecting');
                     }
                     await this.sleep(1000, signal);
                 } catch (err) {
-                    if (err.name === 'AbortError') {
-                        break;
-                    }
+                    if (err.name === 'AbortError') break;
                     if (!this.externalTerm) {
                         this.setStatus('Reconnecting...', 'connecting');
                     }
@@ -246,10 +223,7 @@ class LogViewer {
         const statusText = document.getElementById('status-text');
         const statusDot = document.getElementById('status-dot');
 
-        if (statusText) {
-            statusText.textContent = text;
-        }
-
+        if (statusText) statusText.textContent = text;
         if (statusDot) {
             statusDot.className = 'w-2 h-2 rounded-full';
             const colors = {

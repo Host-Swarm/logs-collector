@@ -11,6 +11,16 @@ use Illuminate\Support\Facades\Route;
 Route::get('/stacks', [StackController::class, 'index']);
 Route::get('/stacks/{stack}', [StackController::class, 'show']);
 Route::get('/health', HealthController::class);
+
+// Temporary test route for FrankenPHP streaming diagnosis
+Route::get('/test-stream', function () {
+    return response()->stream(function () {
+        echo "line 1\n";
+        flush();
+        echo "line 2\n";
+        flush();
+    }, 200, ['Content-Type' => 'text/plain', 'X-Accel-Buffering' => 'no']);
+});
 Route::get('/containers/{containerId}/stream', ContainerLogsController::class);
 Route::get('/containers/{containerId}/logs', ContainerLogsController::class);
 Route::get('/containers/{containerId}/exec', [ContainerExecController::class, 'stream']);

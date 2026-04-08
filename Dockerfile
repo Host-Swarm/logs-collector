@@ -44,22 +44,26 @@ RUN composer install \
     --no-scripts \
     && npm ci --ignore-scripts
 
-# Copy the rest of the application source (includes artisan)
+# Copy the rest of the application source (includes artisan).
+# node_modules is excluded via .dockerignore.
 COPY . .
 
-# Now that artisan is present, generate the optimised autoloader and run
-# post-autoload-dump (package:discover etc.), then build frontend assets.
-RUN composer dump-autoload --optimize \
-    && npm run build \
-    && rm -rf node_modules
-
+# Create required directories before artisan runs anything.
 RUN mkdir -p storage/framework/cache \
     storage/framework/sessions \
     storage/framework/testing \
     storage/framework/views \
     storage/logs \
-    bootstrap/cache \
-    && php artisan config:cache \
+    bootstrap/cache
+
+# Re-run composer scripts now that artisan and bootstrap/cache are present.
+RUN composer run-script post-autoload-dump --no-interaction
+
+# Build frontend assets then discard node_modules.
+RUN npm run build \
+    && rm -rf node_modules
+
+RUN php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache \
     && chown -R www-data:www-data storage bootstrap/cache public/build

@@ -24,6 +24,11 @@ services:
       PARENT_APP_TOKEN_VERIFY_PATH: /api/token/verify
       PARENT_APP_TIMEOUT: 5
 
+      # Agent identity & heartbeat
+      SERVER_ID: "${SERVER_ID}"
+      CONNECTION_KEY: "${CONNECTION_KEY}"
+      HEARTBEAT_INTERVAL: "${HEARTBEAT_INTERVAL:-30}"
+
       # Swarm
       LOG_COLLECTOR_SWARM_KEY: "${LOG_COLLECTOR_SWARM_KEY:-main-swarm}"
 

@@ -61,9 +61,10 @@ RUN npm run build \
 RUN php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache \
-    && chown -R www-data:www-data storage bootstrap/cache public/build
+    && chown -R www-data:www-data storage bootstrap/cache public/build \
+    && chmod +x docker-entrypoint.sh
 
 EXPOSE 8080
 
-# frankenphp php-server handles WebSocket upgrades and connection hijacking correctly.
-CMD ["frankenphp", "php-server", "--listen", ":8080", "--root", "/var/www/html/public"]
+# Entrypoint starts the heartbeat agent in background, then the web server.
+CMD ["./docker-entrypoint.sh"]

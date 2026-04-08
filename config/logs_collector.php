@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 return [
+    'server_id' => env('SERVER_ID'),
+    'connection_key' => env('CONNECTION_KEY'),
     'server_secret' => env('SERVER_SECRET'),
     'swarm_key' => env('LOG_COLLECTOR_SWARM_KEY', 'main-swarm'),
+    'heartbeat_interval' => (int) env('HEARTBEAT_INTERVAL', 30),
     'docker' => [
         'socket_path' => env('DOCKER_SOCKET_PATH', '/var/run/docker.sock'),
         'timeout' => (int) env('DOCKER_TIMEOUT', 10),

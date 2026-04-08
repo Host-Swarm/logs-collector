@@ -100,12 +100,78 @@ class SwarmDiscoveryService
             }
         }
 
+        $swarmContainerIds = array_column($containers, 'containerId');
+        $this->discoverPlainContainers($containers, $swarmContainerIds, $swarmKey, $discoveredAt);
+
         $this->logger->info('Docker Swarm discovery finished.', [
             'services' => is_countable($services) ? count($services) : 0,
             'containers' => count($containers),
         ]);
 
         return $containers;
+    }
+
+    /**
+     * Discovers plain (non-Swarm) running containers and appends them to $containers.
+     *
+     * @param  array<int, DiscoveredContainerDTO>  $containers
+     * @param  array<int, string>  $excludeIds
+     */
+    private function discoverPlainContainers(array &$containers, array $excludeIds, string $swarmKey, \DateTimeImmutable $discoveredAt): void
+    {
+        try {
+            $list = $this->docker->getJson('/containers/json', ['all' => '0']);
+        } catch (Throwable $exception) {
+            $this->logger->warning('Plain container discovery failed.', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            return;
+        }
+
+        foreach ($list as $item) {
+            $id = $item['Id'] ?? null;
+
+            if (! is_string($id) || in_array($id, $excludeIds, true)) {
+                continue;
+            }
+
+            $names = $item['Names'] ?? [];
+            $name = is_array($names) && isset($names[0]) ? ltrim($names[0], '/') : $id;
+            $image = $item['Image'] ?? null;
+            $state = $item['State'] ?? null;
+            $labels = is_array($item['Labels'] ?? null) ? $item['Labels'] : [];
+
+            // Containers that belong to Swarm services are already discovered above.
+            if (isset($labels['com.docker.swarm.service.id'])) {
+                continue;
+            }
+
+            $stackName = $labels['com.docker.compose.project'] ?? null;
+
+            $containers[] = new DiscoveredContainerDTO(
+                swarmKey: $swarmKey,
+                serviceId: $id,
+                serviceName: $name,
+                serviceLabels: [],
+                serviceMode: 'container',
+                taskId: null,
+                taskSlot: null,
+                desiredState: null,
+                taskState: null,
+                nodeId: null,
+                nodeHostname: null,
+                containerId: $id,
+                containerName: $name,
+                containerLabels: $labels,
+                containerState: is_string($state) ? strtolower($state) : null,
+                containerStatus: $item['Status'] ?? null,
+                containerImage: is_string($image) ? $image : null,
+                containerTty: false,
+                stackName: is_string($stackName) ? $stackName : null,
+                discoveredAt: $discoveredAt,
+            );
+        }
     }
 
     /**

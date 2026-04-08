@@ -6,7 +6,6 @@ namespace App\Http\Controllers;
 
 use App\Infrastructure\Docker\DockerApiException;
 use App\Infrastructure\Docker\DockerHttpClient;
-use App\Infrastructure\Docker\DockerLogFrameParser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Psr\Log\LoggerInterface;
@@ -48,14 +47,18 @@ final class ContainerLogsController extends Controller
             ]);
 
             return response()->json(['error' => 'Docker unavailable.'], 503);
-        }
-
-        $tty = (bool) ($info['Config']['Tty'] ?? false);
-        $tail = min((int) $request->query('tail', 100), 10000);
+        } // --- IGNORE ---
+        $rawTail = $request->query('tail', '100');
+        $tail = $rawTail === 'all' ? 'all' : (string) min((int) $rawTail, 10000);
         $stdout = filter_var($request->query('stdout', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $stderr = filter_var($request->query('stderr', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $timestamps = filter_var($request->query('timestamps', '0'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $follow = filter_var($request->query('follow', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
+
+        $rawSince = $request->query('since', '');
+        $since = preg_match('/^[\d]{1,20}(\.\d+)?$|^\d{4}-\d{2}-\d{2}T[\d:.Z+-]+$/', (string) $rawSince)
+            ? (string) $rawSince
+            : '';
 
         $this->logger->info('Container log stream started.', [
             'container_id' => $containerId,
@@ -63,25 +66,30 @@ final class ContainerLogsController extends Controller
             'follow' => $follow,
         ]);
 
-        return response()->stream(function () use ($containerId, $tty, $tail, $stdout, $stderr, $timestamps, $follow): void {
-            $parser = new DockerLogFrameParser(! $tty);
+        return response()->stream(function () use ($containerId, $tail, $stdout, $stderr, $timestamps, $follow, $since): void {
+            set_time_limit(0);
+            ignore_user_abort(true);
+
+            $queryParams = [
+                'follow' => $follow,
+                'stdout' => $stdout,
+                'stderr' => $stderr,
+                'tail' => $tail,
+                'timestamps' => $timestamps,
+            ];
+
+            if ($since !== '') {
+                $queryParams['since'] = $since;
+            }
 
             try {
                 $this->docker->stream(
                     "/containers/{$containerId}/logs",
-                    [
-                        'follow' => $follow,
-                        'stdout' => $stdout,
-                        'stderr' => $stderr,
-                        'tail' => (string) $tail,
-                        'timestamps' => $timestamps,
-                    ],
-                    function (string $chunk) use ($parser): void {
-                        $parser->feed($chunk, function (string $channel, string $payload): void {
-                            echo $channel.': '.$payload;
-                            ob_flush();
-                            flush();
-                        });
+                    $queryParams,
+                    function (string $chunk): void {
+                        echo $chunk;
+                        ob_flush();
+                        flush();
                     },
                 );
             } catch (Throwable $exception) {

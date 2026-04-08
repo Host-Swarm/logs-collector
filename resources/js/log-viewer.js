@@ -2,34 +2,18 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
-const CONTAINER_COLORS = [
-    '\x1b[36m',
-    '\x1b[33m',
-    '\x1b[32m',
-    '\x1b[35m',
-    '\x1b[34m',
-    '\x1b[91m',
-    '\x1b[96m',
-    '\x1b[93m',
-    '\x1b[92m',
-    '\x1b[95m',
-];
-
 const RESET = '\x1b[0m';
-const DIM = '\x1b[2m';
 const RED = '\x1b[31m';
-const STDERR_COLOR = '\x1b[38;5;203m';
 
 class LogViewer {
-    constructor(scope) {
-        this.scope = scope;
+    constructor(containerId) {
+        this.containerId = containerId;
         this.term = null;
         this.fitAddon = null;
-        this.abortControllers = [];
-        this.activeStreams = 0;
+        this.abort = null;
     }
 
-    init(containerElement) {
+    init(element) {
         this.term = new Terminal({
             theme: {
                 background: '#0d1117',
@@ -62,179 +46,129 @@ class LogViewer {
 
         this.fitAddon = new FitAddon();
         this.term.loadAddon(this.fitAddon);
-        this.term.open(containerElement);
+        this.term.open(element);
         this.fitAddon.fit();
 
         window.addEventListener('resize', () => this.fitAddon?.fit());
 
-        this.start();
+        this.stream();
     }
 
-    async start() {
-        this.updateStatus('Discovering containers...', 'connecting');
-
-        let containers;
-        try {
-            containers = await this.discoverContainers();
-        } catch (err) {
-            this.updateStatus('Discovery failed', 'error');
-            this.term.writeln(`${RED}Failed to discover containers: ${err.message}${RESET}`);
-            return;
-        }
-
-        if (containers.length === 0) {
-            this.updateStatus('No running containers', 'idle');
-            this.term.writeln('\x1b[33mNo running containers found for this scope.\x1b[0m');
-            return;
-        }
-
-        const count = containers.length;
-        this.term.writeln(`${DIM}Connecting to ${count} container(s)...${RESET}\r\n`);
-        this.updateStatus(`Streaming ${count} container(s)`, 'connected');
-
-        containers.forEach((container, index) => {
-            const color = CONTAINER_COLORS[index % CONTAINER_COLORS.length];
-            this.streamContainer(container, color, count > 1);
-        });
-    }
-
-    async discoverContainers() {
-        const { type, stack, service, container_id } = this.scope;
-
-        if (type === 'container') {
-            return [{ id: container_id, name: container_id.slice(0, 12) }];
-        }
-
-        if (type === 'all') {
-            const data = await this.fetchJson('/api/stacks');
-            const containers = [];
-            for (const s of data.stacks ?? []) {
-                const detail = await this.fetchJson(`/api/stacks/${encodeURIComponent(s.name)}`);
-                for (const svc of detail.services ?? []) {
-                    for (const c of svc.containers ?? []) {
-                        if (c.state === 'running') {
-                            containers.push({ id: c.id, name: c.name ?? c.id.slice(0, 12) });
-                        }
-                    }
-                }
-            }
-            return containers;
-        }
-
-        if (type === 'stack') {
-            const detail = await this.fetchJson(`/api/stacks/${encodeURIComponent(stack)}`);
-            const containers = [];
-            for (const svc of detail.services ?? []) {
-                for (const c of svc.containers ?? []) {
-                    if (c.state === 'running') {
-                        containers.push({ id: c.id, name: c.name ?? c.id.slice(0, 12) });
-                    }
-                }
-            }
-            return containers;
-        }
-
-        if (type === 'service') {
-            const detail = await this.fetchJson(`/api/stacks/${encodeURIComponent(stack)}`);
-            const containers = [];
-            for (const svc of detail.services ?? []) {
-                if (svc.name === service) {
-                    for (const c of svc.containers ?? []) {
-                        if (c.state === 'running') {
-                            containers.push({ id: c.id, name: c.name ?? c.id.slice(0, 12) });
-                        }
-                    }
-                }
-            }
-            return containers;
-        }
-
-        return [];
-    }
-
-    async fetchJson(url) {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status} from ${url}`);
-        }
-        return response.json();
-    }
-
-    streamContainer(container, color, showPrefix) {
-        const controller = new AbortController();
-        this.abortControllers.push(controller);
-        this.activeStreams++;
+    stream() {
+        this.abort = new AbortController();
+        const signal = this.abort.signal;
 
         const run = async () => {
-            const params = new URLSearchParams({ tail: '100', follow: '1', stdout: '1', stderr: '1' });
-            const url = `/api/containers/${container.id}/stream?${params}`;
+            let lastTimestamp = null;
+            let reconnectDelay = 3000;
 
-            try {
-                const response = await fetch(url, { signal: controller.signal });
+            this.setStatus('Connecting...', 'connecting');
 
-                if (!response.ok) {
-                    this.term.writeln(`${color}[${container.name}]${RESET} ${RED}Stream error: HTTP ${response.status}${RESET}`);
-                    return;
+            while (!signal.aborted) {
+                const params = new URLSearchParams({
+                    follow: '1',
+                    stdout: '1',
+                    stderr: '1',
+                    timestamps: '1',
+                });
+
+                if (lastTimestamp !== null) {
+                    // Use since= to resume from last seen log line.
+                    // Do NOT set tail= here — omitting it lets Docker return all
+                    // buffered lines after the given timestamp before following live.
+                    params.set('since', lastTimestamp);
+                } else {
+                    params.set('tail', 'all');
                 }
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
+                try {
+                    const response = await fetch(
+                        `/api/containers/${this.containerId}/stream?${params}`,
+                        { signal },
+                    );
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        break;
-                    }
-
-                    buffer += decoder.decode(value, { stream: true });
-
-                    const newlinePos = buffer.lastIndexOf('\n');
-                    if (newlinePos < 0) {
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            this.setStatus('Container not found', 'error');
+                            this.term.writeln(`${RED}Container not found.${RESET}`);
+                            break;
+                        }
+                        if (response.status === 400) {
+                            this.setStatus('Invalid container ID', 'error');
+                            break;
+                        }
+                        await this.sleep(reconnectDelay, signal);
+                        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
                         continue;
                     }
 
-                    const complete = buffer.slice(0, newlinePos);
-                    buffer = buffer.slice(newlinePos + 1);
+                    reconnectDelay = 3000;
+                    this.setStatus('Connected', 'connected');
 
-                    for (const raw of complete.split('\n')) {
-                        if (raw === '') {
-                            continue;
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    // Binary accumulator for Docker multiplexed frame parsing
+                    let bytes = new Uint8Array(0);
+
+                    const append = (chunk) => {
+                        const merged = new Uint8Array(bytes.length + chunk.length);
+                        merged.set(bytes);
+                        merged.set(chunk, bytes.length);
+                        bytes = merged;
+                    };
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            break;
                         }
 
-                        let channel = 'stdout';
-                        let text = raw;
+                        append(value);
 
-                        if (raw.startsWith('stdout: ')) {
-                            text = raw.slice(8);
-                        } else if (raw.startsWith('stderr: ')) {
-                            channel = 'stderr';
-                            text = raw.slice(8);
+                        // Docker multiplexed log frame: 8-byte header + payload
+                        // Header: [stream_type(1), 0, 0, 0, size_big_endian(4)]
+                        while (bytes.length >= 8) {
+                            const payloadLen =
+                                (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
+
+                            if (bytes.length < 8 + payloadLen) {
+                                break; // wait for more data
+                            }
+
+                            const payload = bytes.slice(8, 8 + payloadLen);
+                            bytes = bytes.slice(8 + payloadLen);
+
+                            const text = decoder.decode(payload);
+
+                            for (const line of text.split('\n')) {
+                                const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
+                                if (trimmed === '') {
+                                    continue;
+                                }
+
+                                // Strip and track the Docker RFC3339Nano timestamp for since= on reconnect
+                                const tsMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /);
+                                if (tsMatch) {
+                                    lastTimestamp = tsMatch[1];
+                                    this.term.writeln(trimmed.slice(tsMatch[0].length));
+                                } else {
+                                    this.term.writeln(trimmed);
+                                }
+                            }
                         }
-
-                        if (text.endsWith('\r')) {
-                            text = text.slice(0, -1);
-                        }
-
-                        const styledText = channel === 'stderr' ? `${STDERR_COLOR}${text}${RESET}` : text;
-                        const line = showPrefix ? `${color}[${container.name}]${RESET} ${styledText}` : styledText;
-
-                        this.term.writeln(line);
                     }
-                }
 
-                this.term.writeln(`${DIM}${showPrefix ? `[${container.name}] ` : ''}--- stream ended ---${RESET}`);
-            } catch (err) {
-                if (err.name === 'AbortError') {
-                    return;
-                }
-                this.term.writeln(
-                    `${showPrefix ? `${color}[${container.name}]${RESET} ` : ''}${RED}Connection error: ${err.message}${RESET}`,
-                );
-            } finally {
-                this.activeStreams--;
-                if (this.activeStreams === 0) {
-                    this.updateStatus('All streams ended', 'idle');
+                    // Stream ended cleanly — reconnect immediately using since= to avoid gaps
+                    this.setStatus('Reconnecting...', 'connecting');
+                    await this.sleep(1000, signal);
+
+                } catch (err) {
+                    if (err.name === 'AbortError') {
+                        break;
+                    }
+                    this.setStatus('Reconnecting...', 'connecting');
+                    await this.sleep(reconnectDelay, signal);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
                 }
             }
         };
@@ -242,7 +176,17 @@ class LogViewer {
         run();
     }
 
-    updateStatus(text, state) {
+    sleep(ms, signal) {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, ms);
+            signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new DOMException('Aborted', 'AbortError'));
+            }, { once: true });
+        });
+    }
+
+    setStatus(text, state) {
         const statusText = document.getElementById('status-text');
         const statusDot = document.getElementById('status-dot');
 
@@ -263,8 +207,7 @@ class LogViewer {
     }
 
     destroy() {
-        this.abortControllers.forEach((c) => c.abort());
-        this.abortControllers = [];
+        this.abort?.abort();
         this.fitAddon = null;
         if (this.term) {
             this.term.dispose();
@@ -276,12 +219,18 @@ class LogViewer {
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-    const container = document.getElementById('terminal-container');
-    if (!container) {
+    const element = document.getElementById('terminal-container');
+    if (!element) {
         return;
     }
 
-    const scope = window.__LOG_SCOPE ?? { type: 'all' };
-    const viewer = new LogViewer(scope);
-    viewer.init(container);
+    const scope = window.__LOG_SCOPE ?? {};
+    const containerId = scope.container_id;
+
+    if (!containerId) {
+        return;
+    }
+
+    const viewer = new LogViewer(containerId);
+    viewer.init(element);
 });

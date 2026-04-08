@@ -28,7 +28,7 @@ final class ContainerLogsController extends Controller
         // Inspect the container before starting the stream so we can return
         // 404 or 503 with proper HTTP status codes before any headers are sent.
         try {
-            $info = $this->docker->getJson("/containers/{$containerId}/json");
+            $this->docker->getJson("/containers/{$containerId}/json");
         } catch (DockerApiException $exception) {
             if ($exception->isNotFound()) {
                 return response()->json(['error' => 'Container not found.'], 404);
@@ -48,25 +48,16 @@ final class ContainerLogsController extends Controller
 
             return response()->json(['error' => 'Docker unavailable.'], 503);
         } // --- IGNORE ---
-        $rawTail = $request->query('tail', '100');
-        $tail = $rawTail === 'all' ? 'all' : (string) min((int) $rawTail, 10000);
         $stdout = filter_var($request->query('stdout', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $stderr = filter_var($request->query('stderr', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
-        $timestamps = filter_var($request->query('timestamps', '0'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
         $follow = filter_var($request->query('follow', '1'), FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
-
-        $rawSince = $request->query('since', '');
-        $since = preg_match('/^[\d]{1,20}(\.\d+)?$|^\d{4}-\d{2}-\d{2}T[\d:.Z+-]+$/', (string) $rawSince)
-            ? (string) $rawSince
-            : '';
 
         $this->logger->info('Container log stream started.', [
             'container_id' => $containerId,
-            'tail' => $tail,
             'follow' => $follow,
         ]);
 
-        return response()->stream(function () use ($containerId, $tail, $stdout, $stderr, $timestamps, $follow, $since): void {
+        return response()->stream(function () use ($containerId, $stdout, $stderr, $follow): void {
             set_time_limit(0);
             ignore_user_abort(true);
 
@@ -74,13 +65,7 @@ final class ContainerLogsController extends Controller
                 'follow' => $follow,
                 'stdout' => $stdout,
                 'stderr' => $stderr,
-                'tail' => $tail,
-                'timestamps' => $timestamps,
             ];
-
-            if ($since !== '') {
-                $queryParams['since'] = $since;
-            }
 
             try {
                 $this->docker->stream(

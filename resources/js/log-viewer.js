@@ -61,6 +61,7 @@ class LogViewer {
         this.labelColor = options.labelColor ?? '\x1b[36m';
         this.externalTerm = options.term ?? null;
         this.externalSignal = options.signal ?? null;
+        this.skipHistory = options.skipHistory ?? false;
         this.term = null;
         this.fitAddon = null;
         this.ownAbort = null;
@@ -111,6 +112,8 @@ class LogViewer {
 
                 if (lastTimestamp !== null) {
                     params.set('since', lastTimestamp);
+                } else if (this.skipHistory) {
+                    params.set('since', Math.floor(Date.now() / 1000).toString());
                 } else {
                     params.set('tail', '100');
                 }
@@ -290,11 +293,13 @@ class MultiLogViewer {
         for (let i = 0; i < containers.length; i++) {
             const { id, label } = containers[i];
             const color = LABEL_COLORS[i % LABEL_COLORS.length];
+            const skipHistory = this.scope.type === 'all' || this.scope.type === 'stack';
             const viewer = new LogViewer(id, {
                 term: this.term,
                 label,
                 labelColor: color,
                 signal: this.abort.signal,
+                skipHistory,
             });
             viewer.init(null);
             this.viewers.push(viewer);

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Docker;
 
-use RuntimeException;
-
 class DockerHttpClient
 {
     public function __construct(
@@ -23,13 +21,16 @@ class DockerHttpClient
         $response = $this->request('GET', $path, $query);
 
         if ($response['status'] < 200 || $response['status'] >= 300) {
-            throw new RuntimeException(sprintf('Docker API request failed with status %d.', $response['status']));
+            throw new DockerApiException(
+                sprintf('Docker API request failed with status %d.', $response['status']),
+                $response['status'],
+            );
         }
 
         $data = json_decode($response['body'], true);
 
         if (! is_array($data)) {
-            throw new RuntimeException('Docker API response was not valid JSON.');
+            throw new DockerApiException('Docker API response was not valid JSON.');
         }
 
         return $data;
@@ -44,7 +45,10 @@ class DockerHttpClient
         $response = $this->requestWithBody('POST', $path, $body);
 
         if ($response['status'] < 200 || $response['status'] >= 300) {
-            throw new RuntimeException(sprintf('Docker API POST failed with status %d: %s', $response['status'], $response['body']));
+            throw new DockerApiException(
+                sprintf('Docker API POST failed with status %d.', $response['status']),
+                $response['status'],
+            );
         }
 
         if ($response['body'] === '' || $response['body'] === 'null') {
@@ -54,7 +58,7 @@ class DockerHttpClient
         $data = json_decode($response['body'], true);
 
         if (! is_array($data)) {
-            throw new RuntimeException('Docker API POST response was not valid JSON.');
+            throw new DockerApiException('Docker API POST response was not valid JSON.');
         }
 
         return $data;
@@ -89,7 +93,10 @@ class DockerHttpClient
         // 200 is also acceptable for non-TTY attach.
         if ($status !== 101 && $status !== 200) {
             fclose($socket);
-            throw new RuntimeException(sprintf('Docker exec start failed with status %d.', $status));
+            throw new DockerApiException(
+                sprintf('Docker exec start failed with status %d.', $status),
+                $status,
+            );
         }
 
         return $socket;
@@ -108,7 +115,10 @@ class DockerHttpClient
 
         if ($status < 200 || $status >= 300) {
             fclose($socket);
-            throw new RuntimeException(sprintf('Docker stream request failed with status %d.', $status));
+            throw new DockerApiException(
+                sprintf('Docker stream request failed with status %d.', $status),
+                $status,
+            );
         }
 
         // A streamTimeout of 0 means infinite — always override the general
@@ -256,7 +266,10 @@ class DockerHttpClient
         );
 
         if (! is_resource($socket)) {
-            throw new RuntimeException(sprintf('Unable to connect to Docker socket: %s', $errstr));
+            throw new DockerApiException(
+                sprintf('Unable to connect to Docker socket: %s', $errstr),
+                statusCode: 0,
+            );
         }
 
         stream_set_timeout($socket, $this->timeout);

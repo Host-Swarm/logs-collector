@@ -6,6 +6,7 @@ ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV APP_ENV=production
 ENV LOG_CHANNEL=stderr
 
+# Install system deps for PHP extensions + Node.js 22 LTS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     unzip \
@@ -22,18 +23,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pcntl \
         bcmath \
         curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-COPY . .
+# Copy dependency manifests first for better layer caching
+COPY composer.json composer.lock package.json package-lock.json ./
 
 RUN composer install \
     --no-dev \
     --no-interaction \
     --no-progress \
     --prefer-dist \
-    --optimize-autoloader
+    --optimize-autoloader \
+    && npm ci --ignore-scripts
+
+# Copy the rest of the application source
+COPY . .
+
+# Build frontend assets (xterm.js log viewer)
+RUN npm run build \
+    && rm -rf node_modules
 
 RUN mkdir -p storage/framework/cache \
     storage/framework/sessions \
@@ -41,7 +53,10 @@ RUN mkdir -p storage/framework/cache \
     storage/framework/views \
     storage/logs \
     bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+    && php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache \
+    && chown -R www-data:www-data storage bootstrap/cache public/build
 
 EXPOSE 8080
 

@@ -1,3 +1,4 @@
 <?php
 
-// No web routes — this application serves all endpoints via routes/api.php.
+// All routes are served from routes/api.php under the /api prefix.
+// Web routes are intentionally empty.

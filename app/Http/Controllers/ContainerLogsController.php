@@ -73,7 +73,9 @@ final class ContainerLogsController extends Controller
                     $queryParams,
                     function (string $chunk): void {
                         echo $chunk;
-                        ob_flush();
+                        if (ob_get_level() > 0) {
+                            ob_flush();
+                        }
                         flush();
                     },
                 );

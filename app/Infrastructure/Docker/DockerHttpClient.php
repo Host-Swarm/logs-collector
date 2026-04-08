@@ -84,7 +84,6 @@ class DockerHttpClient
         );
 
         $socket = $this->openSocket();
-        stream_set_timeout($socket, $this->streamTimeout);
         fwrite($socket, $request);
 
         [$status] = $this->readHeaders($socket);
@@ -98,6 +97,10 @@ class DockerHttpClient
                 $status,
             );
         }
+
+        // Switch to the stream timeout (0 = infinite) now that the handshake
+        // is complete and we need to keep the socket open for the exec session.
+        stream_set_timeout($socket, $this->streamTimeout);
 
         return $socket;
     }
@@ -183,7 +186,7 @@ class DockerHttpClient
 
         $socket = $this->openSocket();
         $request = sprintf(
-            "%s %s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+            "%s %s HTTP/1.1\r\nHost: localhost\r\nUser-Agent: host-swarm-agent\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
             $method,
             $path,
             $bodyLength,

@@ -7,12 +7,18 @@ namespace App\Http\Controllers;
 use App\Domain\Docker\Contracts\ExecService;
 use App\Infrastructure\Docker\DockerApiException;
 use App\Infrastructure\Docker\DockerHttpClient;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 final class ContainerExecController extends Controller
 {
+    /** @var string Directory for exec session FIFOs and metadata. */
+    private const SESSION_DIR = '/tmp/exec-sessions';
+
     public function __construct(
         private ExecService $execService,
         private DockerHttpClient $docker,
@@ -20,35 +26,22 @@ final class ContainerExecController extends Controller
     ) {}
 
     /**
-     * Opens an interactive exec session into the container via WebSocket.
+     * Opens an interactive exec session into the container via HTTP streaming.
      *
      * The endpoint:
-     *  1. Verifies the container exists (returns 404 or 503 before upgrading if not).
-     *  2. Performs the WebSocket 101 handshake.
-     *  3. Creates a Docker exec instance (/bin/sh — hardcoded, not caller-controlled).
-     *  4. Starts the exec and proxies bytes bidirectionally using stream_select().
-     *
-     * Runtime note: requires a WebSocket-capable server (PHP built-in server, FrankenPHP,
-     * Swoole). PHP-FPM does not support connection hijacking.
+     *  1. Verifies the container exists (returns 404 or 503 before streaming).
+     *  2. Creates a Docker exec instance (/bin/sh — hardcoded, not caller-controlled).
+     *  3. Starts the exec and returns a StreamedResponse.
+     *  4. The first line of the response is a JSON session descriptor.
+     *  5. Subsequent bytes are raw terminal output from the container.
+     *  6. Input is received via POST /exec/{session}/input through a FIFO pipe.
      */
-    public function __invoke(Request $request, string $containerId): mixed
+    public function stream(Request $request, string $containerId): StreamedResponse|JsonResponse
     {
-        if (! $this->isWebSocketUpgrade($request)) {
-            return response()->json(['error' => 'WebSocket upgrade required.'], 426);
-        }
-
-        $key = $request->header('Sec-WebSocket-Key');
-
-        if (! is_string($key) || $key === '') {
-            return response()->json(['error' => 'Missing Sec-WebSocket-Key header.'], 400);
-        }
-
         if (! preg_match('/^[a-f0-9]{12,64}$/', $containerId)) {
             return response()->json(['error' => 'Invalid container ID.'], 400);
         }
 
-        // Verify the container exists before upgrading — we can still return proper
-        // error codes at this point because headers haven't been sent yet.
         try {
             $this->docker->getJson("/containers/{$containerId}/json");
         } catch (DockerApiException $exception) {
@@ -94,272 +87,200 @@ final class ContainerExecController extends Controller
             return response()->json(['error' => 'Failed to start exec session.'], 500);
         }
 
+        $sessionId = Str::uuid()->toString();
+
         $this->logger->info('Exec session started.', [
             'container_id' => $containerId,
             'exec_id' => $execId,
+            'session_id' => $sessionId,
         ]);
 
-        // All pre-flight checks passed — perform the WebSocket handshake and take
-        // over the connection. No Laravel response object is returned after this point.
-        $accept = base64_encode(sha1($key.'258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true));
-        $this->sendWebSocketHandshake($accept);
-        $this->proxyLoop($dockerSocket, $containerId);
-    }
+        // Prepare session directory and FIFO for input relay.
+        $this->ensureSessionDir();
+        $fifoPath = self::SESSION_DIR."/{$sessionId}.fifo";
+        $metaPath = self::SESSION_DIR."/{$sessionId}.meta";
 
-    private function isWebSocketUpgrade(Request $request): bool
-    {
-        return strtolower((string) $request->header('Upgrade', '')) === 'websocket'
-            && str_contains(strtolower((string) $request->header('Connection', '')), 'upgrade');
-    }
+        posix_mkfifo($fifoPath, 0600);
+        file_put_contents($metaPath, json_encode([
+            'exec_id' => $execId,
+            'container_id' => $containerId,
+        ], JSON_THROW_ON_ERROR));
 
-    private function sendWebSocketHandshake(string $accept): void
-    {
-        header('HTTP/1.1 101 Switching Protocols', true, 101);
-        header('Upgrade: websocket');
-        header('Connection: Upgrade');
-        header('Sec-WebSocket-Accept: '.$accept);
+        return response()->stream(function () use ($dockerSocket, $containerId, $sessionId, $fifoPath, $metaPath): void {
+            set_time_limit(0);
+            ignore_user_abort(true);
 
-        // Flush all PHP output buffers so the 101 response reaches the client
-        // before we start reading/writing raw WebSocket frames.
-        while (ob_get_level() > 0) {
-            ob_end_flush();
-        }
+            // Send session descriptor as the first line so the client knows
+            // which session ID to use for input and resize requests.
+            echo json_encode(['session' => $sessionId])."\n";
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
+            flush();
 
-        flush();
+            // Open the FIFO in read-write mode to avoid blocking (the process
+            // itself acts as both a potential writer and reader).
+            $fifo = fopen($fifoPath, 'r+');
+
+            if ($fifo === false) {
+                $this->logger->error('Failed to open input FIFO.', [
+                    'container_id' => $containerId,
+                    'session_id' => $sessionId,
+                ]);
+                $this->cleanupSession($fifoPath, $metaPath, $dockerSocket);
+
+                return;
+            }
+
+            stream_set_blocking($dockerSocket, false);
+            stream_set_blocking($fifo, false);
+
+            try {
+                $this->proxyLoop($dockerSocket, $fifo);
+            } finally {
+                fclose($fifo);
+                $this->cleanupSession($fifoPath, $metaPath, $dockerSocket);
+
+                $this->logger->info('Exec session closed.', [
+                    'container_id' => $containerId,
+                    'session_id' => $sessionId,
+                ]);
+            }
+        }, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'X-Accel-Buffering' => 'no',
+            'Cache-Control' => 'no-cache',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     /**
-     * Proxies bytes bidirectionally between the WebSocket client and the Docker
-     * exec stream using stream_select() for non-blocking multiplexed I/O.
-     *
-     * @param  resource  $dockerSocket
+     * Receives terminal input from the client and writes it to the session FIFO.
      */
-    private function proxyLoop($dockerSocket, string $containerId): void
+    public function input(Request $request, string $sessionId): JsonResponse
     {
-        $clientInput = fopen('php://input', 'rb');
-        $clientOutput = fopen('php://output', 'wb');
-
-        if ($clientInput === false || $clientOutput === false) {
-            fclose($dockerSocket);
-            $this->logger->error('Failed to open client I/O streams for exec session.', [
-                'container_id' => $containerId,
-            ]);
-
-            return;
+        if (! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $sessionId)) {
+            return response()->json(['error' => 'Invalid session ID.'], 400);
         }
 
-        stream_set_blocking($dockerSocket, false);
-        stream_set_blocking($clientInput, false);
+        $fifoPath = self::SESSION_DIR."/{$sessionId}.fifo";
 
-        // Input buffer for accumulating partial WebSocket frames from the client.
-        $clientBuffer = '';
+        if (! file_exists($fifoPath)) {
+            return response()->json(['error' => 'Session not found.'], 404);
+        }
 
+        $data = $request->getContent();
+
+        if ($data === '') {
+            return response()->json(['error' => 'Empty input.'], 400);
+        }
+
+        $fifo = @fopen($fifoPath, 'w');
+
+        if ($fifo === false) {
+            return response()->json(['error' => 'Session no longer active.'], 410);
+        }
+
+        fwrite($fifo, $data);
+        fclose($fifo);
+
+        return response()->json([], 204);
+    }
+
+    /**
+     * Resizes the exec TTY to match the client's terminal dimensions.
+     */
+    public function resize(Request $request, string $sessionId): JsonResponse
+    {
+        if (! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $sessionId)) {
+            return response()->json(['error' => 'Invalid session ID.'], 400);
+        }
+
+        $metaPath = self::SESSION_DIR."/{$sessionId}.meta";
+
+        if (! file_exists($metaPath)) {
+            return response()->json(['error' => 'Session not found.'], 404);
+        }
+
+        $meta = json_decode((string) file_get_contents($metaPath), true);
+        $execId = $meta['exec_id'] ?? null;
+
+        if (! is_string($execId) || $execId === '') {
+            return response()->json(['error' => 'Session metadata corrupt.'], 500);
+        }
+
+        $cols = (int) $request->input('cols', 80);
+        $rows = (int) $request->input('rows', 24);
+
+        $this->execService->resizeExec($execId, $cols, $rows);
+
+        return response()->json([], 204);
+    }
+
+    /**
+     * Proxies bytes between the Docker exec socket (output) and the FIFO (input)
+     * using stream_select() for non-blocking multiplexed I/O.
+     *
+     * @param  resource  $dockerSocket
+     * @param  resource  $fifo
+     */
+    private function proxyLoop($dockerSocket, $fifo): void
+    {
         while (true) {
-            $read = [$dockerSocket, $clientInput];
+            if (connection_aborted()) {
+                break;
+            }
+
+            $read = [$dockerSocket, $fifo];
             $write = null;
             $except = null;
 
-            $selected = @stream_select($read, $write, $except, 0, 200000);
+            $selected = @stream_select($read, $write, $except, 0, 200_000);
 
             if ($selected === false) {
                 break;
             }
 
-            // Docker exec stdout → encode as WebSocket binary frame → client.
+            // Docker exec stdout → HTTP chunked response.
             if (in_array($dockerSocket, $read, true)) {
-                $data = fread($dockerSocket, 4096);
+                $data = @fread($dockerSocket, 4096);
 
-                if ($data === false || feof($dockerSocket)) {
-                    // Docker shell exited — send a WebSocket close frame.
-                    $this->sendCloseFrame($clientOutput);
+                if ($data === false || $data === '' || feof($dockerSocket)) {
                     break;
                 }
 
-                if ($data !== '') {
-                    fwrite($clientOutput, $this->encodeWebSocketFrame($data));
-                    fflush($clientOutput);
+                echo $data;
+                if (ob_get_level() > 0) {
+                    ob_flush();
                 }
+                flush();
             }
 
-            // WebSocket client → decode frame → Docker exec stdin.
-            if (in_array($clientInput, $read, true)) {
-                $raw = fread($clientInput, 4096);
+            // FIFO input (from POST /input) → Docker exec stdin.
+            if (in_array($fifo, $read, true)) {
+                $data = @fread($fifo, 4096);
 
-                if ($raw === false || feof($clientInput)) {
-                    break;
-                }
-
-                if ($raw !== '') {
-                    $clientBuffer .= $raw;
-                    [$decoded, $clientBuffer] = $this->consumeWebSocketFrames($clientBuffer, $clientOutput, $dockerSocket);
-
-                    if ($decoded === null) {
-                        // Close frame received from client.
-                        break;
-                    }
+                if ($data !== false && $data !== '') {
+                    @fwrite($dockerSocket, $data);
                 }
             }
         }
+    }
 
-        fclose($dockerSocket);
-        fclose($clientInput);
-        fclose($clientOutput);
-
-        $this->logger->info('Exec session closed.', [
-            'container_id' => $containerId,
-        ]);
+    private function ensureSessionDir(): void
+    {
+        if (! is_dir(self::SESSION_DIR)) {
+            mkdir(self::SESSION_DIR, 0700, true);
+        }
     }
 
     /**
-     * Consumes all complete WebSocket frames from the buffer.
-     * Writes decoded payload to the Docker socket.
-     * Returns [null, ''] if a close frame is encountered.
-     * Returns ['ok', $remaining] otherwise.
-     *
      * @param  resource  $dockerSocket
-     * @param  resource  $clientOutput
-     * @return array{0: string|null, 1: string}
      */
-    private function consumeWebSocketFrames(string $buffer, $clientOutput, $dockerSocket): array
+    private function cleanupSession(string $fifoPath, string $metaPath, $dockerSocket): void
     {
-        while ($buffer !== '') {
-            [$result, $payload, $buffer] = $this->decodeWebSocketFrame($buffer);
-
-            if ($result === 'incomplete') {
-                break;
-            }
-
-            if ($result === 'close') {
-                $this->sendCloseFrame($clientOutput);
-
-                return [null, ''];
-            }
-
-            if ($result === 'ping') {
-                // RFC 6455: must respond to ping with pong carrying same payload.
-                fwrite($clientOutput, $this->encodePongFrame($payload));
-                fflush($clientOutput);
-
-                continue;
-            }
-
-            if ($result === 'data' && $payload !== '') {
-                fwrite($dockerSocket, $payload);
-            }
-        }
-
-        return ['ok', $buffer];
-    }
-
-    /**
-     * Decodes the first WebSocket frame from the buffer.
-     *
-     * Returns:
-     *   ['incomplete', '', $buffer]  — not enough bytes yet
-     *   ['close', '', '']            — close frame (opcode 0x08)
-     *   ['ping', $payload, $rest]    — ping frame (opcode 0x09)
-     *   ['data', $payload, $rest]    — text/binary/continuation frame
-     *
-     * @return array{0: string, 1: string, 2: string}
-     */
-    private function decodeWebSocketFrame(string $raw): array
-    {
-        if (strlen($raw) < 2) {
-            return ['incomplete', '', $raw];
-        }
-
-        $firstByte = ord($raw[0]);
-        $secondByte = ord($raw[1]);
-        $opcode = $firstByte & 0x0F;
-        $masked = (bool) ($secondByte & 0x80);
-        $payloadLength = $secondByte & 0x7F;
-        $offset = 2;
-
-        if ($payloadLength === 126) {
-            if (strlen($raw) < 4) {
-                return ['incomplete', '', $raw];
-            }
-
-            $payloadLength = unpack('n', substr($raw, 2, 2))[1];
-            $offset = 4;
-        } elseif ($payloadLength === 127) {
-            if (strlen($raw) < 10) {
-                return ['incomplete', '', $raw];
-            }
-
-            $payloadLength = unpack('J', substr($raw, 2, 8))[1];
-            $offset = 10;
-        }
-
-        $maskSize = $masked ? 4 : 0;
-        $totalLength = $offset + $maskSize + $payloadLength;
-
-        if (strlen($raw) < $totalLength) {
-            return ['incomplete', '', $raw];
-        }
-
-        $remaining = substr($raw, $totalLength);
-
-        if ($opcode === 0x08) {
-            return ['close', '', ''];
-        }
-
-        $payload = substr($raw, $offset + $maskSize, $payloadLength);
-
-        if ($masked) {
-            $maskingKey = substr($raw, $offset, 4);
-            $unmasked = '';
-
-            for ($i = 0; $i < strlen($payload); $i++) {
-                $unmasked .= chr(ord($payload[$i]) ^ ord($maskingKey[$i % 4]));
-            }
-
-            $payload = $unmasked;
-        }
-
-        $type = $opcode === 0x09 ? 'ping' : 'data';
-
-        return [$type, $payload, $remaining];
-    }
-
-    /**
-     * Encodes a payload as an unmasked WebSocket binary frame (server → client).
-     */
-    private function encodeWebSocketFrame(string $payload): string
-    {
-        $length = strlen($payload);
-        $frame = chr(0x82); // FIN=1, RSV=0, opcode=binary(2)
-
-        if ($length <= 125) {
-            $frame .= chr($length);
-        } elseif ($length <= 65535) {
-            $frame .= chr(126).pack('n', $length);
-        } else {
-            $frame .= chr(127).pack('J', $length);
-        }
-
-        return $frame.$payload;
-    }
-
-    /**
-     * Encodes a WebSocket pong frame (server → client) carrying the given payload.
-     */
-    private function encodePongFrame(string $payload): string
-    {
-        $length = strlen($payload);
-
-        return chr(0x8A).chr($length).$payload; // FIN=1, opcode=pong(10)
-    }
-
-    /**
-     * Sends a WebSocket close frame (server → client).
-     *
-     * @param  resource  $clientOutput
-     */
-    private function sendCloseFrame($clientOutput): void
-    {
-        // Close frame: FIN=1, opcode=0x08, no masking, no payload.
-        fwrite($clientOutput, chr(0x88).chr(0x00));
-        fflush($clientOutput);
+        @fclose($dockerSocket);
+        @unlink($fifoPath);
+        @unlink($metaPath);
     }
 }

@@ -20,4 +20,9 @@ interface ExecService
      * @return resource
      */
     public function startExec(string $execId);
+
+    /**
+     * Resizes the TTY for an exec instance.
+     */
+    public function resizeExec(string $execId, int $cols, int $rows): void;
 }

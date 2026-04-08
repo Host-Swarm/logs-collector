@@ -91,4 +91,19 @@ final class DockerExecService implements ExecService
 
         return $socket;
     }
+
+    /**
+     * Resizes the TTY for an exec instance via the Docker API.
+     */
+    public function resizeExec(string $execId, int $cols, int $rows): void
+    {
+        try {
+            $this->docker->postJson("/exec/{$execId}/resize?h={$rows}&w={$cols}");
+        } catch (Throwable $exception) {
+            $this->logger->error('Docker exec resize failed.', [
+                'exec_id' => $execId,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
 }

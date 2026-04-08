@@ -13,4 +13,6 @@ Route::get('/stacks/{stack}', [StackController::class, 'show']);
 Route::get('/health', HealthController::class);
 Route::get('/containers/{containerId}/stream', ContainerLogsController::class);
 Route::get('/containers/{containerId}/logs', ContainerLogsController::class);
-Route::get('/containers/{containerId}/exec', ContainerExecController::class);
+Route::get('/containers/{containerId}/exec', [ContainerExecController::class, 'stream']);
+Route::post('/containers/exec/{session}/input', [ContainerExecController::class, 'input']);
+Route::post('/containers/exec/{session}/resize', [ContainerExecController::class, 'resize']);

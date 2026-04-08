@@ -66,67 +66,110 @@ function setStatus(text, state) {
     }
 }
 
-// ── WebSocket exec session ────────────────────────────────────────────────
+// ── HTTP exec session ─────────────────────────────────────────────────────
 
-let ws = null;
+let sessionId = null;
+let abortController = null;
 
-function buildWsUrl() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+function buildExecUrl() {
     const params = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${proto}//${location.host}/api/containers/${containerId}/exec${params}`;
+    return `/api/containers/${containerId}/exec${params}`;
 }
 
-function connect() {
-    if (ws) {
-        ws.close();
-        ws = null;
+function sendInput(data) {
+    if (!sessionId) return;
+    fetch(`/api/containers/exec/${sessionId}/input`, {
+        method: 'POST',
+        body: data,
+        keepalive: true,
+    }).catch(() => {});
+}
+
+function sendResize(cols, rows) {
+    if (!sessionId) return;
+    fetch(`/api/containers/exec/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols, rows }),
+    }).catch(() => {});
+}
+
+async function connect() {
+    if (abortController) {
+        abortController.abort();
     }
+
+    sessionId = null;
+    abortController = new AbortController();
+    const { signal } = abortController;
 
     setStatus('Connecting...', 'connecting');
 
-    ws = new WebSocket(buildWsUrl());
-    ws.binaryType = 'arraybuffer';
+    try {
+        const response = await fetch(buildExecUrl(), { signal });
 
-    ws.addEventListener('open', () => {
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            setStatus(body.error || 'Connection failed', 'error');
+            term.writeln(`\r\n\x1b[31m[${body.error || `HTTP ${response.status}`}]\x1b[0m`);
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let firstLine = true;
+        let buffer = '';
+
         setStatus('Connected', 'connected');
         term.focus();
-    });
 
-    ws.addEventListener('message', (event) => {
-        const data = event.data instanceof ArrayBuffer
-            ? new Uint8Array(event.data)
-            : new TextEncoder().encode(event.data);
-        term.write(data);
-    });
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-    ws.addEventListener('close', (event) => {
-        ws = null;
-        if (event.wasClean && event.code === 1000) {
-            setStatus('Session ended', 'idle');
-            term.writeln('\r\n\x1b[2m[Session closed]\x1b[0m');
-        } else {
-            setStatus('Disconnected', 'error');
-            term.writeln('\r\n\x1b[31m[Connection lost]\x1b[0m');
+            if (firstLine) {
+                // The first line of the response is a JSON session descriptor.
+                buffer += decoder.decode(value, { stream: true });
+                const newlineIdx = buffer.indexOf('\n');
+                if (newlineIdx === -1) continue;
+
+                const line = buffer.slice(0, newlineIdx);
+                const rest = buffer.slice(newlineIdx + 1);
+                buffer = '';
+                firstLine = false;
+
+                try {
+                    const meta = JSON.parse(line);
+                    sessionId = meta.session;
+                } catch {
+                    setStatus('Invalid session', 'error');
+                    break;
+                }
+
+                // Send initial resize now that session is established.
+                sendResize(term.cols, term.rows);
+
+                // Write any remaining bytes after the session line.
+                if (rest.length > 0) {
+                    term.write(new TextEncoder().encode(rest));
+                }
+                continue;
+            }
+
+            // Subsequent chunks are raw terminal output bytes.
+            term.write(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
         }
-    });
 
-    ws.addEventListener('error', () => {
-        setStatus('Connection failed', 'error');
-    });
-
-    // Forward terminal input to the Docker exec stream via WebSocket.
-    term.onData((data) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(data);
-        }
-    });
-
-    // Notify Docker of terminal resize so programs like vim render correctly.
-    term.onResize(({ cols, rows }) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-        }
-    });
+        // Stream ended cleanly.
+        sessionId = null;
+        setStatus('Session ended', 'idle');
+        term.writeln('\r\n\x1b[2m[Session closed]\x1b[0m');
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+        sessionId = null;
+        setStatus('Disconnected', 'error');
+        term.writeln('\r\n\x1b[31m[Connection lost]\x1b[0m');
+    }
 }
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -138,6 +181,12 @@ document.addEventListener('DOMContentLoaded', () => {
     term.open(element);
     fitAddon.fit();
     window.addEventListener('resize', () => fitAddon.fit());
+
+    // Forward terminal input to the exec session via HTTP POST.
+    term.onData((data) => sendInput(data));
+
+    // Notify Docker of terminal resize.
+    term.onResize(({ cols, rows }) => sendResize(cols, rows));
 
     document.getElementById('reconnect-btn')?.addEventListener('click', connect);
 

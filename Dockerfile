@@ -42,7 +42,7 @@ RUN composer install \
     --no-progress \
     --prefer-dist \
     --no-scripts \
-    && npm ci --ignore-scripts
+    && npm install --ignore-scripts
 
 # Copy the rest of the application source (includes artisan).
 # node_modules is excluded via .dockerignore.

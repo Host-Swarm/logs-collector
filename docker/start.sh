@@ -36,6 +36,12 @@ fi
 echo "Authentication is handled by Laravel middleware based on AUTH environment variable"
 echo "Current AUTH setting: ${AUTH:-none}"
 
+# Grant PHP-FPM (www-data) access to the Docker socket so it can
+# call the Docker API for container discovery, log streaming, and exec.
+if [ -S /var/run/docker.sock ]; then
+    chmod 666 /var/run/docker.sock
+fi
+
 # Create exec session directory for terminal FIFO pipes
 mkdir -p /tmp/exec-sessions
 chmod 777 /tmp/exec-sessions

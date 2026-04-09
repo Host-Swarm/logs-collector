@@ -28,7 +28,7 @@ final class AccessTokenValidator implements ScopedTokenValidator
                     'token' => $token,
                     'scope' => $scope,
                 ]);
-
+                
             if ($response->successful()) {
                 return true;
             }

@@ -63,5 +63,10 @@ RUN chown -R www-data:www-data storage bootstrap/cache public/build \
 
 EXPOSE 8080
 
+# Override base image health check: php-server disables the Caddy admin API (:2019)
+# so the inherited check always fails. Check the actual app on :8080 instead.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8080/ || exit 1
+
 # Entrypoint starts the heartbeat agent in background, then the web server.
 CMD ["./docker-entrypoint.sh"]

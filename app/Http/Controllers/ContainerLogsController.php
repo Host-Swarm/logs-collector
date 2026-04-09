@@ -57,6 +57,14 @@ final class ContainerLogsController extends Controller
                 'error' => $exception->getMessage(),
             ]);
 
+            if ($exception->isNotFound()) {
+                return response()->json(['error' => 'Container not found.'], 404);
+            }
+
+            if ($exception->isUnavailable()) {
+                return response()->json(['error' => 'Docker unavailable.'], 503);
+            }
+
             return response()->json(['error' => 'Failed to open log stream.'], 502);
         } catch (Throwable $exception) {
             $this->logger->error('Unexpected error opening log stream.', [

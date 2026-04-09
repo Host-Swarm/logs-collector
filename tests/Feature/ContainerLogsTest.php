@@ -11,7 +11,7 @@ beforeEach(fn () => $this->withoutMiddleware(AccessTokenMiddleware::class));
 function fakeDockerClientForLogs(int $statusCode): void
 {
     $mock = Mockery::mock(DockerHttpClient::class);
-    $mock->shouldReceive('getJson')->andThrow(new DockerApiException('error', $statusCode));
+    $mock->shouldReceive('openStreamSocket')->andThrow(new DockerApiException('error', $statusCode));
 
     app()->instance(DockerHttpClient::class, $mock);
 }

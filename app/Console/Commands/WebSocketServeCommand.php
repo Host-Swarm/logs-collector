@@ -22,6 +22,10 @@ final class WebSocketServeCommand extends Command
         Worker::$pidFile = storage_path('logs/websocket.pid');
         Worker::$logFile = storage_path('logs/websocket.log');
 
+        // Workerman reads global $argv to determine the command (start/stop/etc).
+        global $argv;
+        $argv = ['artisan', 'start'];
+
         $this->info("Starting WebSocket server on {$host}:{$port}...");
 
         $handler->start($host, $port);

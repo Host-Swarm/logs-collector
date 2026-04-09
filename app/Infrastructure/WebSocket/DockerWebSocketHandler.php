@@ -11,6 +11,7 @@ use App\Infrastructure\Docker\DockerHttpClient;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Workerman\Connection\TcpConnection;
+use Workerman\Protocols\Http\Request;
 use Workerman\Protocols\Websocket;
 use Workerman\Worker;
 
@@ -39,17 +40,10 @@ final class DockerWebSocketHandler
         Worker::runAll();
     }
 
-    private function onOpen(TcpConnection $conn, string $httpBuffer): void
+    private function onOpen(TcpConnection $conn, Request $request): void
     {
-        $url = '/';
-
-        if (preg_match('/^GET\s+(\S+)/i', $httpBuffer, $m)) {
-            $url = $m[1];
-        }
-
-        $path = parse_url($url, PHP_URL_PATH) ?: '/';
-        $queryString = parse_url($url, PHP_URL_QUERY) ?? '';
-        parse_str($queryString, $query);
+        $path = $request->path() ?: '/';
+        $query = $request->get() ?: [];
 
         $accessToken = (string) ($query['accessToken'] ?? '');
 

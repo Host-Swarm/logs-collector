@@ -58,10 +58,7 @@ RUN composer run-script post-autoload-dump --no-interaction
 RUN npm run build \
     && rm -rf node_modules
 
-RUN php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache \
-    && chown -R www-data:www-data storage bootstrap/cache public/build \
+RUN chown -R www-data:www-data storage bootstrap/cache public/build \
     && chmod +x docker-entrypoint.sh
 
 EXPOSE 8080

@@ -91,6 +91,7 @@ class StackService
                         taskId: $c->taskId,
                         taskSlot: $c->taskSlot,
                         image: $c->containerImage,
+                        serviceId: $c->serviceMode !== 'container' ? $c->serviceId : null,
                     ),
                     $serviceContainers,
                 );

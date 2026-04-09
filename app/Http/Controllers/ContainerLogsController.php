@@ -44,6 +44,9 @@ final class ContainerLogsController extends Controller
             $queryParams['since'] = $since;
         }
 
+        $serviceId = $request->query('serviceId');
+        $hasServiceFallback = is_string($serviceId) && preg_match('/^[a-z0-9]{10,64}$/i', $serviceId);
+
         // Open the Docker log socket before entering the streaming callback
         // so we can still return proper error codes if the connection fails.
         try {
@@ -52,6 +55,13 @@ final class ContainerLogsController extends Controller
                 $queryParams,
             );
         } catch (DockerApiException $exception) {
+            // In multi-node Swarm deployments the container may live on a
+            // different node.  Fall back to the service-level log endpoint
+            // which the Swarm manager can satisfy for any node.
+            if ($exception->isNotFound() && $hasServiceFallback) {
+                return $this->streamServiceLogs($serviceId, $containerId, $queryParams);
+            }
+
             $this->logger->error('Failed to open log stream.', [
                 'container_id' => $containerId,
                 'error' => $exception->getMessage(),
@@ -141,6 +151,119 @@ final class ContainerLogsController extends Controller
             @fclose($socket);
 
             $this->logger->info('Container log stream ended.', [
+                'container_id' => $containerId,
+            ]);
+        }, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'X-Accel-Buffering' => 'no',
+            'Cache-Control' => 'no-cache',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * Falls back to Docker's /services/{id}/logs when the container is on a
+     * remote Swarm node and not accessible locally.
+     *
+     * @param  array<string, string>  $queryParams
+     */
+    private function streamServiceLogs(string $serviceId, string $containerId, array $queryParams): StreamedResponse|JsonResponse
+    {
+        try {
+            $stream = $this->docker->openStreamSocket(
+                "/services/{$serviceId}/logs",
+                $queryParams,
+            );
+        } catch (DockerApiException $exception) {
+            $this->logger->error('Failed to open service log stream.', [
+                'service_id' => $serviceId,
+                'container_id' => $containerId,
+                'error' => $exception->getMessage(),
+            ]);
+
+            if ($exception->isNotFound()) {
+                return response()->json(['error' => 'Container not found.'], 404);
+            }
+
+            if ($exception->isUnavailable()) {
+                return response()->json(['error' => 'Docker unavailable.'], 503);
+            }
+
+            return response()->json(['error' => 'Failed to open log stream.'], 502);
+        } catch (Throwable $exception) {
+            $this->logger->error('Unexpected error opening service log stream.', [
+                'service_id' => $serviceId,
+                'container_id' => $containerId,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['error' => 'Failed to open log stream.'], 502);
+        }
+
+        $socket = $stream['socket'];
+        $initialBuffer = $stream['buffer'];
+        $isChunked = $stream['chunked'];
+
+        return response()->stream(function () use ($socket, $initialBuffer, $isChunked, $serviceId, $containerId): void {
+            set_time_limit(0);
+            ignore_user_abort(true);
+
+            $chunkedBuffer = '';
+
+            if ($initialBuffer !== '') {
+                if ($isChunked) {
+                    [$decoded, $chunkedBuffer] = $this->docker->decodeChunkedStream($chunkedBuffer.$initialBuffer);
+                    if ($decoded !== '') {
+                        echo $decoded;
+                        flush();
+                    }
+                } else {
+                    echo $initialBuffer;
+                    flush();
+                }
+            }
+
+            while (true) {
+                if (connection_aborted()) {
+                    break;
+                }
+
+                $read = [$socket];
+                $write = null;
+                $except = null;
+
+                $selected = @stream_select($read, $write, $except, 0, 200_000);
+
+                if ($selected === false) {
+                    break;
+                }
+
+                if ($selected === 0) {
+                    continue;
+                }
+
+                $chunk = @fread($socket, 8192);
+
+                if ($chunk === false || $chunk === '' || feof($socket)) {
+                    break;
+                }
+
+                if ($isChunked) {
+                    [$decoded, $chunkedBuffer] = $this->docker->decodeChunkedStream($chunkedBuffer.$chunk);
+                    if ($decoded !== '') {
+                        echo $decoded;
+                        flush();
+                    }
+                } else {
+                    echo $chunk;
+                    flush();
+                }
+            }
+
+            @fclose($socket);
+
+            $this->logger->info('Service log stream ended.', [
+                'service_id' => $serviceId,
                 'container_id' => $containerId,
             ]);
         }, 200, [

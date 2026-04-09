@@ -64,6 +64,7 @@ function buildTerminal() {
 class LogViewer {
     constructor(containerId, options = {}) {
         this.containerId = containerId;
+        this.serviceId = options.serviceId ?? null;
         this.label = options.label ?? null;
         this.labelColor = options.labelColor ?? '\x1b[36m';
         this.externalTerm = options.term ?? null;
@@ -116,6 +117,10 @@ class LogViewer {
                     stderr: '1',
                     timestamps: '1',
                 });
+
+                if (this.serviceId) {
+                    params.set('serviceId', this.serviceId);
+                }
 
                 if (lastTimestamp !== null) {
                     params.set('since', lastTimestamp);
@@ -298,7 +303,7 @@ class MultiLogViewer {
         this.term.writeln('');
 
         for (let i = 0; i < containers.length; i++) {
-            const { id, label } = containers[i];
+            const { id, serviceId, label } = containers[i];
             const color = LABEL_COLORS[i % LABEL_COLORS.length];
             const skipHistory = this.scope.type === 'all' || this.scope.type === 'stack';
             const viewer = new LogViewer(id, {
@@ -307,6 +312,7 @@ class MultiLogViewer {
                 labelColor: color,
                 signal: this.abort.signal,
                 skipHistory,
+                serviceId,
             });
             viewer.init(null);
             this.viewers.push(viewer);
@@ -334,6 +340,7 @@ class MultiLogViewer {
                 const running = (svc.containers ?? []).filter((c) => c.state === 'running');
                 return running.map((c) => ({
                     id: c.id,
+                    serviceId: c.service_id ?? null,
                     label:
                         running.length > 1
                             ? `${svc.name}.${c.task_slot ?? running.indexOf(c) + 1}`
@@ -350,7 +357,7 @@ class MultiLogViewer {
                         running.length > 1
                             ? `${svc.name}.${c.task_slot ?? running.indexOf(c) + 1}`
                             : svc.name;
-                    containers.push({ id: c.id, label });
+                    containers.push({ id: c.id, serviceId: c.service_id ?? null, label });
                 }
             }
             return containers;
@@ -375,7 +382,7 @@ class MultiLogViewer {
                 const stackData = await stackRes.json();
                 for (const svc of stackData.services ?? []) {
                     for (const c of (svc.containers ?? []).filter((c) => c.state === 'running')) {
-                        containers.push({ id: c.id, label: `${stackSummary.name}/${svc.name}` });
+                        containers.push({ id: c.id, serviceId: c.service_id ?? null, label: `${stackSummary.name}/${svc.name}` });
                     }
                 }
             } catch (err) {

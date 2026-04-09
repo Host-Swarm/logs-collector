@@ -15,6 +15,7 @@ final class ContainerDTO
         public ?string $taskId,
         public ?int $taskSlot,
         public ?string $image,
+        public ?string $serviceId = null,
     ) {}
 
     /**
@@ -31,6 +32,7 @@ final class ContainerDTO
             'task_id' => $this->taskId,
             'task_slot' => $this->taskSlot,
             'image' => $this->image,
+            'service_id' => $this->serviceId,
         ];
     }
 }

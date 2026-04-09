@@ -19,12 +19,13 @@
 
         {{-- Breadcrumb navigation --}}
         <nav class="flex items-center gap-1.5 text-sm min-w-0 flex-1">
-            <a href="/logs" class="text-[#58a6ff] hover:underline shrink-0">All Logs</a>
+            @php $tokenQuery = request()->query('accessToken') ? '?accessToken=' . urlencode(request()->query('accessToken')) : '' @endphp
+            <a href="/logs{{ $tokenQuery }}" class="text-[#58a6ff] hover:underline shrink-0">All Logs</a>
 
             @if (!empty($scope['stack']))
                 <span class="text-[#484f58]">/</span>
                 @if (!empty($scope['service']) || !empty($scope['container_id']))
-                    <a href="/logs/{{ rawurlencode($scope['stack']) }}" class="text-[#58a6ff] hover:underline truncate max-w-[160px]" title="{{ $scope['stack'] }}">{{ $scope['stack'] }}</a>
+                    <a href="/logs/{{ rawurlencode($scope['stack']) }}{{ $tokenQuery }}" class="text-[#58a6ff] hover:underline truncate max-w-[160px]" title="{{ $scope['stack'] }}">{{ $scope['stack'] }}</a>
                 @else
                     <span class="text-[#c9d1d9] truncate max-w-[160px]" title="{{ $scope['stack'] }}">{{ $scope['stack'] }}</span>
                 @endif
@@ -33,7 +34,7 @@
             @if (!empty($scope['service']))
                 <span class="text-[#484f58]">/</span>
                 @if (!empty($scope['container_id']))
-                    <a href="/logs/{{ rawurlencode($scope['stack']) }}/{{ rawurlencode($scope['service']) }}" class="text-[#58a6ff] hover:underline truncate max-w-[160px]" title="{{ $scope['service'] }}">{{ $scope['service'] }}</a>
+                    <a href="/logs/{{ rawurlencode($scope['stack']) }}/{{ rawurlencode($scope['service']) }}{{ $tokenQuery }}" class="text-[#58a6ff] hover:underline truncate max-w-[160px]" title="{{ $scope['service'] }}">{{ $scope['service'] }}</a>
                 @else
                     <span class="text-[#c9d1d9] truncate max-w-[160px]" title="{{ $scope['service'] }}">{{ $scope['service'] }}</span>
                 @endif

@@ -20,6 +20,13 @@ const LABEL_COLORS = [
     '\x1b[34m', // blue
 ];
 
+const ACCESS_TOKEN = new URLSearchParams(window.location.search).get('accessToken') ?? '';
+
+function apiUrl(path) {
+    const separator = path.includes('?') ? '&' : '?';
+    return ACCESS_TOKEN ? `${path}${separator}accessToken=${encodeURIComponent(ACCESS_TOKEN)}` : path;
+}
+
 function buildTerminal() {
     return new Terminal({
         theme: {
@@ -120,7 +127,7 @@ class LogViewer {
 
                 try {
                     const response = await fetch(
-                        `/api/containers/${this.containerId}/stream?${params}`,
+                        apiUrl(`/api/containers/${this.containerId}/stream?${params}`),
                         { signal },
                     );
 
@@ -313,7 +320,7 @@ class MultiLogViewer {
         const signal = this.abort.signal;
 
         if (type === 'stack' || type === 'service') {
-            const res = await fetch(`/api/stacks/${encodeURIComponent(stack)}`, { signal });
+            const res = await fetch(apiUrl(`/api/stacks/${encodeURIComponent(stack)}`), { signal });
             if (!res.ok) {
                 throw new Error(`Stack API returned ${res.status}`);
             }
@@ -350,7 +357,7 @@ class MultiLogViewer {
         }
 
         // type === 'all' — fetch all stacks then drill into each
-        const res = await fetch('/api/stacks', { signal });
+        const res = await fetch(apiUrl('/api/stacks'), { signal });
         if (!res.ok) {
             throw new Error(`Stacks API returned ${res.status}`);
         }
@@ -359,7 +366,7 @@ class MultiLogViewer {
         for (const stackSummary of data.stacks ?? []) {
             try {
                 const stackRes = await fetch(
-                    `/api/stacks/${encodeURIComponent(stackSummary.name)}`,
+                    apiUrl(`/api/stacks/${encodeURIComponent(stackSummary.name)}`),
                     { signal },
                 );
                 if (!stackRes.ok) {

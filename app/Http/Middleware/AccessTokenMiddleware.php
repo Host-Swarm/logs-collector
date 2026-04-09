@@ -25,13 +25,13 @@ final class AccessTokenMiddleware
         }
 
         $token = $request->query('accessToken');
-
+        
         if (! is_string($token) || $token === '') {
             return response()->json(['error' => 'Unauthorized.'], 401);
         }
 
         $scope = $this->resolveScope($request);
-
+        
         if (! $this->validator->validate($token, $scope)) {
             $this->logger->info('Access token validation failed.', [
                 'scope' => $scope,
@@ -40,7 +40,7 @@ final class AccessTokenMiddleware
 
             return response()->json(['error' => 'Unauthorized.'], 401);
         }
-
+        
         return $next($request);
     }
 

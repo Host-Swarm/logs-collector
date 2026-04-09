@@ -3,7 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 const containerId = window.__EXEC_CONTAINER_ID ?? '';
-const token = window.__EXEC_TOKEN ?? '';
+const ACCESS_TOKEN = new URLSearchParams(window.location.search).get('accessToken') ?? '';
 
 // ── Terminal setup ─────────────────────────────────────────────────────────
 
@@ -73,8 +73,8 @@ let ws = null;
 function buildWsUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams();
-    if (token) {
-        params.set('accessToken', token);
+    if (ACCESS_TOKEN) {
+        params.set('accessToken', ACCESS_TOKEN);
     }
     return `${protocol}//${window.location.host}/ws/exec/${containerId}?${params}`;
 }

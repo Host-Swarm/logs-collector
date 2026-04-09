@@ -8,10 +8,6 @@
     "nightwatch_mcp": false,
     "sail": false,
     "skills": [
-        "pest-testing",
-        "debug-log-forwarding",
-        "docker-swarm-discovery",
-        "impliment-log-stream",
-        "review-docker-socker-exposure"
+        "pest-testing"
     ]
 }

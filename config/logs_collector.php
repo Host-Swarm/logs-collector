@@ -20,4 +20,8 @@ return [
         'token_verify_path' => env('PARENT_APP_TOKEN_VERIFY_PATH', '/api/token/verify'),
         'timeout' => (int) env('PARENT_APP_TIMEOUT', 5),
     ],
+    'websocket' => [
+        'host' => env('WEBSOCKET_HOST', '0.0.0.0'),
+        'port' => (int) env('WEBSOCKET_PORT', 8080),
+    ],
 ];

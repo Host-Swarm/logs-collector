@@ -27,6 +27,13 @@ function apiUrl(path) {
     return ACCESS_TOKEN ? `${path}${separator}accessToken=${encodeURIComponent(ACCESS_TOKEN)}` : path;
 }
 
+function wsUrl(path) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const separator = path.includes('?') ? '&' : '?';
+    const tokenParam = ACCESS_TOKEN ? `${separator}accessToken=${encodeURIComponent(ACCESS_TOKEN)}` : '';
+    return `${protocol}//${window.location.host}${path}${tokenParam}`;
+}
+
 function buildTerminal() {
     return new Terminal({
         theme: {
@@ -102,136 +109,119 @@ class LogViewer {
     stream() {
         const signal = this.externalSignal ?? (this.ownAbort = new AbortController()).signal;
 
-        const run = async () => {
-            let lastTimestamp = null;
-            let reconnectDelay = 3000;
+        let lastTimestamp = null;
+        let reconnectDelay = 3000;
+        let ws = null;
 
-            if (!this.externalTerm) {
-                this.setStatus('Connecting...', 'connecting');
+        if (!this.externalTerm) {
+            this.setStatus('Connecting...', 'connecting');
+        }
+
+        const connect = () => {
+            if (signal.aborted) return;
+
+            const params = new URLSearchParams({
+                follow: '1',
+                stdout: '1',
+                stderr: '1',
+                timestamps: '1',
+            });
+
+            if (this.serviceId) {
+                params.set('serviceId', this.serviceId);
             }
 
-            while (!signal.aborted) {
-                const params = new URLSearchParams({
-                    follow: '1',
-                    stdout: '1',
-                    stderr: '1',
-                    timestamps: '1',
-                });
+            if (lastTimestamp !== null) {
+                params.set('since', lastTimestamp);
+            } else if (this.skipHistory) {
+                params.set('since', Math.floor(Date.now() / 1000).toString());
+            } else {
+                params.set('tail', '100');
+            }
 
-                if (this.serviceId) {
-                    params.set('serviceId', this.serviceId);
+            ws = new WebSocket(wsUrl(`/ws/logs/${this.containerId}?${params}`));
+            ws.binaryType = 'arraybuffer';
+
+            let frameBuffer = new Uint8Array(0);
+
+            ws.onopen = () => {
+                reconnectDelay = 3000;
+                if (!this.externalTerm) {
+                    this.setStatus('Connected', 'connected');
+                }
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.error) {
+                            this.writeLine(`${RED}${msg.error}${RESET}`);
+                            if (!this.externalTerm) {
+                                this.setStatus(msg.error, 'error');
+                            }
+                        }
+                    } catch { /* ignore non-JSON text */ }
+                    return;
                 }
 
-                if (lastTimestamp !== null) {
-                    params.set('since', lastTimestamp);
-                } else if (this.skipHistory) {
-                    params.set('since', Math.floor(Date.now() / 1000).toString());
+                const incoming = new Uint8Array(event.data);
+                let bytes;
+
+                if (frameBuffer.length > 0) {
+                    bytes = new Uint8Array(frameBuffer.length + incoming.length);
+                    bytes.set(frameBuffer);
+                    bytes.set(incoming, frameBuffer.length);
                 } else {
-                    params.set('tail', '100');
+                    bytes = incoming;
                 }
 
-                try {
-                    const response = await fetch(
-                        apiUrl(`/api/containers/${this.containerId}/stream?${params}`),
-                        { signal },
-                    );
+                const decoder = new TextDecoder();
 
-                    if (!response.ok) {
-                        if (response.status === 404) {
-                            if (!this.externalTerm) {
-                                this.setStatus('Container not found', 'error');
-                            }
-                            this.writeLine(`${RED}Container not found.${RESET}`);
-                            break;
-                        }
-                        if (response.status === 400) {
-                            if (!this.externalTerm) {
-                                this.setStatus('Invalid container ID', 'error');
-                            }
-                            break;
-                        }
-                        await this.sleep(reconnectDelay, signal);
-                        reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-                        continue;
-                    }
+                while (bytes.length >= 8) {
+                    const payloadLen =
+                        (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
 
-                    reconnectDelay = 3000;
-                    if (!this.externalTerm) {
-                        this.setStatus('Connected', 'connected');
-                    }
+                    if (bytes.length < 8 + payloadLen) break;
 
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let bytes = new Uint8Array(0);
+                    const payload = bytes.slice(8, 8 + payloadLen);
+                    bytes = bytes.slice(8 + payloadLen);
 
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
+                    const text = decoder.decode(payload);
+                    for (const line of text.split('\n')) {
+                        const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
+                        if (trimmed === '') continue;
 
-                        // Append incoming chunk
-                        const merged = new Uint8Array(bytes.length + value.length);
-                        merged.set(bytes);
-                        merged.set(value, bytes.length);
-                        bytes = merged;
-
-                        // Docker multiplexed log frame: 8-byte header + payload
-                        while (bytes.length >= 8) {
-                            const payloadLen =
-                                (bytes[4] << 24) | (bytes[5] << 16) | (bytes[6] << 8) | bytes[7];
-
-                            if (bytes.length < 8 + payloadLen) break;
-
-                            const payload = bytes.slice(8, 8 + payloadLen);
-                            bytes = bytes.slice(8 + payloadLen);
-
-                            const text = decoder.decode(payload);
-                            for (const line of text.split('\n')) {
-                                const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
-                                if (trimmed === '') continue;
-
-                                const tsMatch = trimmed.match(
-                                    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /,
-                                );
-                                if (tsMatch) {
-                                    lastTimestamp = tsMatch[1];
-                                    this.writeLine(trimmed.slice(tsMatch[0].length));
-                                } else {
-                                    this.writeLine(trimmed);
-                                }
-                            }
+                        const tsMatch = trimmed.match(
+                            /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /,
+                        );
+                        if (tsMatch) {
+                            lastTimestamp = tsMatch[1];
+                            this.writeLine(trimmed.slice(tsMatch[0].length));
+                        } else {
+                            this.writeLine(trimmed);
                         }
                     }
-
-                    if (!this.externalTerm) {
-                        this.setStatus('Reconnecting...', 'connecting');
-                    }
-                    await this.sleep(1000, signal);
-                } catch (err) {
-                    if (err.name === 'AbortError') break;
-                    if (!this.externalTerm) {
-                        this.setStatus('Reconnecting...', 'connecting');
-                    }
-                    await this.sleep(reconnectDelay, signal);
-                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
                 }
-            }
+
+                frameBuffer = bytes.length > 0 ? bytes : new Uint8Array(0);
+            };
+
+            ws.onerror = () => {};
+
+            ws.onclose = () => {
+                if (signal.aborted) return;
+                if (!this.externalTerm) {
+                    this.setStatus('Reconnecting...', 'connecting');
+                }
+                setTimeout(connect, reconnectDelay);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            };
+
+            signal.addEventListener('abort', () => ws?.close(), { once: true });
         };
 
-        run();
-    }
-
-    sleep(ms, signal) {
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(resolve, ms);
-            signal?.addEventListener(
-                'abort',
-                () => {
-                    clearTimeout(timer);
-                    reject(new DOMException('Aborted', 'AbortError'));
-                },
-                { once: true },
-            );
-        });
+        connect();
     }
 
     setStatus(text, state) {

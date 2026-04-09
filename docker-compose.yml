@@ -4,11 +4,11 @@ services:
   agent:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: host-swarm-agent
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "80:80"
     environment:
       APP_NAME: host-swarm-agent
       APP_ENV: production

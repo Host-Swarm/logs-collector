@@ -47,7 +47,7 @@ class AgentHeartbeatCommand extends Command
             if ($response->successful()) {
                 $data = $response->json();
                 $logger->info('Agent connected.', ['server_name' => $data['name'] ?? 'unknown']);
-                $this->info("Connected as: {$data['name'] ?? 'unknown'}");
+                $this->info('Connected as: '.($data['name'] ?? 'unknown'));
             } else {
                 $logger->warning('Agent connect returned non-success.', ['status' => $response->status()]);
                 $this->warn("Connect returned HTTP {$response->status()}, continuing anyway…");
